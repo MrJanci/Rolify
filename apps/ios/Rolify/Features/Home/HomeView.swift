@@ -4,6 +4,9 @@ struct HomeView: View {
     @State private var shelves: [HomeShelf] = []
     @State private var isLoading = true
     @State private var error: String?
+    @State private var showAddToPlaylist = false
+    @State private var pendingTrackId = ""
+    @State private var pendingTrackTitle = ""
     @State private var api = API.shared
     @State private var player = Player.shared
 
@@ -20,7 +23,12 @@ struct HomeView: View {
                     LazyVStack(alignment: .leading, spacing: DS.l) {
                         greetingHeader
                         ForEach(shelves) { shelf in
-                            HomeShelfView(shelf: shelf, player: player)
+                            HomeShelfView(
+                                shelf: shelf, player: player,
+                                showAddToPlaylist: $showAddToPlaylist,
+                                pendingTrackId: $pendingTrackId,
+                                pendingTrackTitle: $pendingTrackTitle
+                            )
                         }
                         Spacer().frame(height: 120)
                     }
@@ -47,6 +55,11 @@ struct HomeView: View {
                     .font(DS.Font.headline)
                     .foregroundStyle(DS.textPrimary)
             }
+        }
+        .sheet(isPresented: $showAddToPlaylist) {
+            AddToPlaylistSheet(trackId: pendingTrackId, trackTitle: pendingTrackTitle)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
         .task { if shelves.isEmpty { await load() } }
     }

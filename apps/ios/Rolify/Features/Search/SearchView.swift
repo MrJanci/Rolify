@@ -6,6 +6,9 @@ struct SearchView: View {
     @State private var isLoading = false
     @State private var error: String?
     @State private var debounceTask: Task<Void, Never>?
+    @State private var showAddToPlaylist = false
+    @State private var pendingTrackId = ""
+    @State private var pendingTrackTitle = ""
     @State private var api = API.shared
     @State private var player = Player.shared
 
@@ -54,6 +57,11 @@ struct SearchView: View {
                     .font(DS.Font.headline)
                     .foregroundStyle(DS.textPrimary)
             }
+        }
+        .sheet(isPresented: $showAddToPlaylist) {
+            AddToPlaylistSheet(trackId: pendingTrackId, trackTitle: pendingTrackTitle)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
     }
 
@@ -132,6 +140,13 @@ struct SearchView: View {
                                 let q = r.tracks.map { QueueTrack($0) }
                                 Task { await player.play(queue: q, startingAt: t.id) }
                             }
+                            .rolifyTrackContextMenu(
+                                trackId: t.id, trackTitle: t.title,
+                                albumId: t.albumId,
+                                showAddToPlaylist: $showAddToPlaylist,
+                                pendingTrackId: $pendingTrackId,
+                                pendingTrackTitle: $pendingTrackTitle
+                            )
                         }
                     }
                     if !r.artists.isEmpty {

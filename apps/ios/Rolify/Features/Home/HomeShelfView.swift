@@ -4,6 +4,9 @@ import SwiftUI
 struct HomeShelfView: View {
     let shelf: HomeShelf
     let player: Player
+    @Binding var showAddToPlaylist: Bool
+    @Binding var pendingTrackId: String
+    @Binding var pendingTrackTitle: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: DS.s) {
@@ -48,6 +51,13 @@ struct HomeShelfView: View {
             }
         }
         .buttonStyle(.plain)
+        .rolifyTrackContextMenu(
+            trackId: t.id, trackTitle: t.title,
+            albumId: t.albumId,
+            showAddToPlaylist: $showAddToPlaylist,
+            pendingTrackId: $pendingTrackId,
+            pendingTrackTitle: $pendingTrackTitle
+        )
     }
 
     private func playlistCard(_ p: PlaylistSummary) -> some View {

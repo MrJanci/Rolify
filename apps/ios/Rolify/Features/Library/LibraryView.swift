@@ -8,6 +8,9 @@ struct LibraryView: View {
     @State private var isLoading = true
     @State private var error: String?
     @State private var showCreateSheet = false
+    @State private var showAddToPlaylist = false
+    @State private var pendingTrackId = ""
+    @State private var pendingTrackTitle = ""
     @State private var api = API.shared
     @State private var player = Player.shared
 
@@ -44,6 +47,13 @@ struct LibraryView: View {
                                 let qtracks = tracks.map { QueueTrack($0) }
                                 Task { await player.play(queue: qtracks, startingAt: t.id) }
                             }
+                            .rolifyTrackContextMenu(
+                                trackId: t.id, trackTitle: t.title,
+                                albumId: t.albumId,
+                                showAddToPlaylist: $showAddToPlaylist,
+                                pendingTrackId: $pendingTrackId,
+                                pendingTrackTitle: $pendingTrackTitle
+                            )
                             Divider().background(DS.divider).padding(.leading, 88)
                         }
                         Spacer().frame(height: 120)
@@ -89,6 +99,11 @@ struct LibraryView: View {
                 playlists.insert(created, at: 0)
             }
             .presentationDetents([.medium])
+        }
+        .sheet(isPresented: $showAddToPlaylist) {
+            AddToPlaylistSheet(trackId: pendingTrackId, trackTitle: pendingTrackTitle)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
         .task { if tracks.isEmpty { await load() } }
     }
