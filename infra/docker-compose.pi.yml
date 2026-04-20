@@ -1,0 +1,11 @@
+# Pi-spezifischer Compose-Override.
+# Verwendung auf dem Pi:
+#   docker compose -f docker-compose.yml -f docker-compose.pi.yml up -d
+#
+# Port 3000 ist auf dem Pi durch AdGuard belegt -> Backend extern auf 3001.
+
+services:
+  backend:
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
