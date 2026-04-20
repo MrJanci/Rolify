@@ -101,7 +101,7 @@ services:
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID}
       SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}
     ports:
-      - "3000:3000"
+      - "${BACKEND_HOST_PORT:-3000}:3000"
 
   nginx:
     image: nginx:alpine
