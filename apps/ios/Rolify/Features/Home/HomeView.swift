@@ -1,9 +1,7 @@
 import SwiftUI
 
-/// Home-Tab — Spotify-Style "For You" Feed. In Chunk 12 wird das zu Shelves ausgebaut.
-/// Fuer jetzt: nur die Recent-Tracks (gleiche Daten wie Library, anders praesentiert).
 struct HomeView: View {
-    @State private var tracks: [TrackListItem] = []
+    @State private var shelves: [HomeShelf] = []
     @State private var isLoading = true
     @State private var error: String?
     @State private var api = API.shared
@@ -13,26 +11,16 @@ struct HomeView: View {
         ZStack {
             DS.bg.ignoresSafeArea()
 
-            if isLoading {
+            if isLoading && shelves.isEmpty {
                 ProgressView().tint(DS.accent).frame(maxHeight: .infinity)
             } else if let error {
                 ErrorView(message: error) { Task { await load() } }
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0, pinnedViews: []) {
-                        headline
-                        SectionHeader(title: "Neu hinzugefuegt")
-                        LazyVStack(spacing: 0) {
-                            ForEach(tracks.prefix(10)) { t in
-                                TrackRow(
-                                    track: t,
-                                    isCurrent: player.currentTrack?.trackId == t.id,
-                                    isPlaying: player.isPlaying && player.currentTrack?.trackId == t.id
-                                ) {
-                                    let q = tracks.prefix(10).map { QueueTrack($0) }
-                                    Task { await player.play(queue: Array(q), startingAt: t.id) }
-                                }
-                            }
+                    LazyVStack(alignment: .leading, spacing: DS.l) {
+                        greetingHeader
+                        ForEach(shelves) { shelf in
+                            HomeShelfView(shelf: shelf, player: player)
                         }
                         Spacer().frame(height: 120)
                     }
@@ -41,6 +29,18 @@ struct HomeView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(for: PlaylistRoute.self) { route in
+            switch route {
+            case let .detail(id, name):
+                PlaylistDetailView(playlistId: id, initialName: name)
+            }
+        }
+        .navigationDestination(for: LibraryRoute.self) { route in
+            switch route {
+            case let .album(id): AlbumDetailView(albumId: id)
+            case let .artist(id): ArtistDetailView(artistId: id)
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Text("Home")
@@ -48,18 +48,26 @@ struct HomeView: View {
                     .foregroundStyle(DS.textPrimary)
             }
         }
-        .task { if tracks.isEmpty { await load() } }
+        .task { if shelves.isEmpty { await load() } }
     }
 
-    private var headline: some View {
-        VStack(alignment: .leading, spacing: DS.s) {
-            Text("Guten Abend")
+    private var greetingHeader: some View {
+        VStack(alignment: .leading, spacing: DS.xs) {
+            Text(timeBasedGreeting())
                 .font(.system(size: 26, weight: .black))
                 .foregroundStyle(DS.textPrimary)
         }
         .padding(.horizontal, DS.xl)
         .padding(.top, DS.s)
-        .padding(.bottom, DS.s)
+    }
+
+    private func timeBasedGreeting() -> String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        switch hour {
+        case 5..<12: return "Guten Morgen"
+        case 12..<18: return "Guten Tag"
+        default: return "Guten Abend"
+        }
     }
 
     private func load() async {
@@ -67,28 +75,9 @@ struct HomeView: View {
         defer { isLoading = false }
         do {
             let home = try await api.browseHome()
-            self.tracks = home.tracks
+            self.shelves = home.shelves ?? []
         } catch {
             self.error = error.localizedDescription
         }
-    }
-}
-
-struct ErrorView: View {
-    let message: String
-    let onRetry: () -> Void
-
-    var body: some View {
-        VStack(spacing: DS.s) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 32)).foregroundStyle(.red)
-            Text(message)
-                .foregroundStyle(DS.textPrimary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-            Button("Nochmal", action: onRetry)
-                .foregroundStyle(DS.accent)
-        }
-        .frame(maxHeight: .infinity)
     }
 }
