@@ -156,6 +156,30 @@ model JamSession {
   @@index([code])
 }
 
+model ScrapeJob {
+  id              String        @id @default(cuid())
+  playlistUrl     String
+  status          ScrapeStatus  @default(QUEUED)
+  totalTracks     Int           @default(0)
+  processedTracks Int           @default(0)
+  failedTracks    Int           @default(0)
+  errorMessage    String?
+  createdBy       String?       // userId des Initiators
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  startedAt       DateTime?
+  completedAt     DateTime?
+
+  @@index([status, createdAt])
+}
+
+enum ScrapeStatus {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+}
+
 enum SubStatus {
   NONE
   ACTIVE

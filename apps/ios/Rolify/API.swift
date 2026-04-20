@@ -140,6 +140,23 @@ struct ArtistDetail: Codable, Hashable {
     let albums: [AlbumListItem]
 }
 
+struct ScrapeJob: Codable, Identifiable, Hashable {
+    let id: String
+    let playlistUrl: String
+    let status: String    // QUEUED / RUNNING / DONE / FAILED
+    let totalTracks: Int
+    let processedTracks: Int
+    let failedTracks: Int
+    let errorMessage: String?
+    let createdAt: String
+    let startedAt: String?
+    let completedAt: String?
+}
+
+struct ScrapeJobsResponse: Codable {
+    let jobs: [ScrapeJob]
+}
+
 struct StreamManifest: Codable {
     let trackId: String
     let title: String
@@ -282,6 +299,19 @@ final class API {
 
     func artistDetail(id: String) async throws -> ArtistDetail {
         try await request("/artists/\(id)", method: "GET")
+    }
+
+    func scrapeJobs() async throws -> ScrapeJobsResponse {
+        try await request("/admin/scrape/jobs", method: "GET")
+    }
+
+    func startScrape(playlistUrl: String) async throws -> ScrapeJob {
+        struct Body: Encodable { let playlistUrl: String }
+        return try await request("/admin/scrape", method: "POST", body: Body(playlistUrl: playlistUrl))
+    }
+
+    func cancelScrapeJob(id: String) async throws {
+        try await requestVoid("/admin/scrape/jobs/\(id)", method: "DELETE")
     }
 
     // MARK: Request-raw helpers

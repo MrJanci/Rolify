@@ -69,6 +69,30 @@ services:
       echo 'Buckets created';
       "
 
+  scraper:
+    build:
+      context: ../scraping
+      dockerfile: Dockerfile
+    container_name: rolify-scraper
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT}
+      MINIO_USER: ${MINIO_USER}
+      MINIO_PASSWORD: ${MINIO_PASSWORD}
+      MINIO_BUCKET_TRACKS: ${MINIO_BUCKET_TRACKS}
+      MINIO_BUCKET_COVERS: ${MINIO_BUCKET_COVERS}
+      SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID}
+      SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}
+    volumes:
+      # .spotify-token.json wird vom Host-FS gemounted (OAuth-Refresh-Token)
+      - ../scraping/.spotify-token.json:/app/.spotify-token.json:ro
+
   backend:
     build:
       context: ../apps/backend
