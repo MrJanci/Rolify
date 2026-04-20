@@ -121,6 +121,14 @@ final class PlaybackQueue {
         currentIndex = 0
     }
 
+    /// Fuegt Track ans Ende der Queue an (Context-Menu "Zur Warteschlange")
+    func appendAtEnd(_ track: QueueTrack) {
+        // Wenn Track schon in Queue: skip
+        guard !order.contains(where: { $0.id == track.id }) else { return }
+        originalOrder.append(track)
+        order.append(track)
+    }
+
     // MARK: Internal
 
     private func rebuildOrder() {

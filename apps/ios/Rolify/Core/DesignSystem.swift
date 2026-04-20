@@ -1,22 +1,25 @@
 import SwiftUI
 
 /// Zentrale Design-Tokens fuer Rolify.
-/// Farben sind aus dem Spotify-Scraping abgeleitet, aber eigene Variante
-/// (Rolify-Accent ist exakt #1ED760, leicht heller als Spotify-Green #1DB954).
+/// Palette vom R:\landingPage\RolakInvoice Website uebernommen (Primary: Blue-500 #3B82F6).
+/// Adaptiert fuer Dark-Mode mit leicht blauem Tint in den Backgrounds.
 enum DS {
     // MARK: Colors
 
-    static let bg = Color(red: 0.071, green: 0.071, blue: 0.071)           // #121212
-    static let bgElevated = Color(red: 0.118, green: 0.118, blue: 0.118)   // #1E1E1E
-    static let bgRow = Color(red: 0.094, green: 0.094, blue: 0.094)
-    static let accent = Color(red: 0.118, green: 0.843, blue: 0.376)        // #1ED760
+    static let bg = Color(red: 0.043, green: 0.055, blue: 0.090)           // #0B0E17 - deep navy
+    static let bgElevated = Color(red: 0.086, green: 0.106, blue: 0.157)   // #161B28 - elevated card
+    static let bgRow = Color(red: 0.055, green: 0.071, blue: 0.110)        // #0E121C - row bg
+
+    static let accent = Color(red: 0.231, green: 0.510, blue: 0.965)       // #3B82F6 - Blue-500 (primary, from landing page)
+    static let accentBright = Color(red: 0.376, green: 0.647, blue: 0.980) // #60A5FA - Blue-400 (hover/active)
+    static let accentDeep = Color(red: 0.114, green: 0.306, blue: 0.847)   // #1D4ED8 - Blue-700 (pressed)
 
     static let textPrimary = Color.white
-    static let textSecondary = Color.white.opacity(0.62)
+    static let textSecondary = Color(red: 0.631, green: 0.698, blue: 0.820) // #A1B2D1 - blueish grey
     static let textTertiary = Color.white.opacity(0.38)
 
-    static let divider = Color.white.opacity(0.06)
-    static let separator = Color.white.opacity(0.10)
+    static let divider = Color(red: 1, green: 1, blue: 1).opacity(0.07)
+    static let separator = Color(red: 1, green: 1, blue: 1).opacity(0.12)
 
     // MARK: Spacing
 
