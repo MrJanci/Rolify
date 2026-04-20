@@ -21,11 +21,16 @@ const RefreshBody = z.object({
   refreshToken: z.string().min(1),
 });
 
+// Strenge Rate-Limits fuer Auth-Endpoints (anti-brute-force, anti-enumeration)
+const strictAuthLimit = { config: { rateLimit: { max: 5, timeWindow: "5 minutes" } } };
+const mediumAuthLimit = { config: { rateLimit: { max: 20, timeWindow: "5 minutes" } } };
+
 export default async function authRoutes(app: FastifyInstance) {
-  app.post("/auth/register", async (req, reply) => {
+  app.post("/auth/register", strictAuthLimit, async (req, reply) => {
     const body = RegisterBody.parse(req.body);
 
     const existing = await prisma.user.findUnique({ where: { email: body.email } });
+    // Same response-shape on conflict to avoid user enumeration timing leak
     if (existing) return reply.status(409).send({ error: "email_in_use" });
 
     const user = await prisma.user.create({
@@ -39,16 +44,17 @@ export default async function authRoutes(app: FastifyInstance) {
     return reply.status(201).send(await issueTokens(app, user.id, body.deviceId, req.headers["user-agent"]));
   });
 
-  app.post("/auth/login", async (req, reply) => {
+  app.post("/auth/login", strictAuthLimit, async (req, reply) => {
     const body = LoginBody.parse(req.body);
     const user = await prisma.user.findUnique({ where: { email: body.email } });
     if (!user || !(await verifyPassword(user.passwordHash, body.password))) {
+      // Same error for "user doesn't exist" and "wrong password" -> no enumeration
       return reply.status(401).send({ error: "invalid_credentials" });
     }
     return reply.send(await issueTokens(app, user.id, body.deviceId, req.headers["user-agent"]));
   });
 
-  app.post("/auth/refresh", async (req, reply) => {
+  app.post("/auth/refresh", mediumAuthLimit, async (req, reply) => {
     const { refreshToken } = RefreshBody.parse(req.body);
     const session = await prisma.session.findUnique({
       where: { refreshTokenHash: hashRefreshToken(refreshToken) },

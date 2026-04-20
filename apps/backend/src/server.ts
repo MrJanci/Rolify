@@ -39,9 +39,19 @@ async function buildServer() {
 
   await app.register(helmet, { contentSecurityPolicy: false });
   await app.register(cors, { origin: env.CORS_ORIGIN.split(",").map((s) => s.trim()) });
-  await app.register(rateLimit, { max: 300, timeWindow: "1 minute" });
+  await app.register(rateLimit, {
+    max: 300,
+    timeWindow: "1 minute",
+    // Reverse-Proxy setzt CF-Connecting-IP / X-Real-IP; fastify trustProxy=true respektiert das.
+    keyGenerator: (req) => req.ip,
+  });
   await app.register(multipart, { limits: { fileSize: 16 * 1024 * 1024 } });
   await app.register(websocket);
+
+  // Defense-in-Depth: Root und unbekannte Paths geben nur 404 (kein Branding, keine Version)
+  app.setNotFoundHandler((_req, reply) => {
+    reply.status(404).send();
+  });
 
   await app.register(errorHandler);
   await app.register(authPlugin);
