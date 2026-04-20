@@ -48,16 +48,7 @@ enum DS {
     }
 }
 
-// Rueckwaerts-Kompatibilitaet — alte Call-Sites nutzen noch `Rolify.accent`
-enum Rolify {
-    static let bg = DS.bg
-    static let bgElevated = DS.bgElevated
-    static let bgRow = DS.bgRow
-    static let accent = DS.accent
-    static let textPrimary = DS.textPrimary
-    static let textSecondary = DS.textSecondary
-    static let divider = DS.divider
-}
+// (Rueckwaerts-Kompat-Alias `Rolify` entfernt — kann mit Module-Namen kollidieren.)
 
 // MARK: Helpers (duration formatting)
 
