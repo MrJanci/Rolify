@@ -5,6 +5,13 @@ import { prisma } from "../lib/prisma.js";
 import { buckets, s3 } from "../lib/s3.js";
 import { env } from "../config.js";
 
+function publicCoverUrl(storedUrl: string): string {
+  if (!storedUrl) return "";
+  if (storedUrl.startsWith("http")) return storedUrl;
+  const base = env.MINIO_PUBLIC_ENDPOINT ?? env.MINIO_ENDPOINT;
+  return `${base.replace(/\/$/, "")}${storedUrl}`;
+}
+
 /**
  * MVP-DRM: Single endpoint returns signed ciphertext URL + AES-256-GCM master key
  * (as hex). iOS client reads first 12 bytes of ciphertext as IV, rest is
@@ -44,7 +51,7 @@ export default async function streamRoutes(app: FastifyInstance) {
       title: track.title,
       artist: track.artist.name,
       album: track.album.title,
-      coverUrl: track.album.coverUrl,
+      coverUrl: publicCoverUrl(track.album.coverUrl),
       durationMs: track.durationMs,
       signedCiphertextUrl: publicCiphertextUrl,
       masterKeyHex: Buffer.from(track.masterKey).toString("hex"),
