@@ -289,7 +289,7 @@ final class API {
     private struct EmptyResponse: Decodable {}
     private struct AddedResponse: Decodable { let added: Int }
 
-    private func requestRawOk<T: Decodable>(_ path: String, method: String, body: Encodable? = nil) async throws -> T {
+    private func requestRawOk<T: Decodable>(_ path: String, method: String, body: (any Encodable)? = nil) async throws -> T {
         // Wie `request<T>`, aber akzeptiert 204/empty bodies
         let url = baseURL.appendingPathComponent(path)
         var req = URLRequest(url: url)
@@ -319,7 +319,7 @@ final class API {
     // MARK: Request-Core
 
     private func request<T: Decodable>(
-        _ path: String, method: String, body: Encodable? = nil, auth: Bool = true
+        _ path: String, method: String, body: (any Encodable)? = nil, auth: Bool = true
     ) async throws -> T {
         let url = baseURL.appendingPathComponent(path)
         var req = URLRequest(url: url)
@@ -356,8 +356,8 @@ final class API {
 }
 
 private struct AnyEncodable: Encodable {
-    let wrapped: Encodable
-    init(_ w: Encodable) { self.wrapped = w }
+    let wrapped: any Encodable
+    init(_ w: any Encodable) { self.wrapped = w }
     func encode(to encoder: Encoder) throws { try wrapped.encode(to: encoder) }
 }
 
