@@ -2,11 +2,17 @@ import Foundation
 import CryptoKit
 import AVFoundation
 import MediaPlayer
+import UIKit
 
 /// Player laedt die verschluesselte Datei runter, entschluesselt lokal (AES-256-GCM)
 /// und spielt ueber AVPlayer ab. Fuer MVP komplett-Download vorm Play (kein streaming-decrypt).
 ///
-/// File-Format: [12-byte IV][ciphertext][16-byte GCM-tag] — Layout vom encryptor.py Stage.
+/// File-Format: [12-byte IV][ciphertext][16-byte GCM-tag] - Layout vom encryptor.py Stage.
+///
+/// Integrations:
+/// - MPNowPlayingInfoCenter (Lockscreen + Control Center + Bluetooth-Autoradio-Display)
+/// - MPRemoteCommandCenter (Lockscreen Play/Pause/Skip + Remote-Commands vom Bluetooth-Device)
+/// - AVAudioSession .playback (Background-Audio, Siehe Info.plist UIBackgroundModes)
 @Observable
 @MainActor
 final class Player {
@@ -20,9 +26,25 @@ final class Player {
 
     private var avPlayer: AVPlayer?
     private var timeObserver: Any?
+    private var endObserver: NSObjectProtocol?
+    private var remoteCommandsSetup = false
+
+    /// Wird vom PlaybackQueue/NowPlayingSheet ueberschrieben (Chunk 11).
+    /// Default: nil -> nextTrack-Command der Lockscreen ist wirkungslos.
+    var onAdvance: (() async -> Void)?
+    var onRewind: (() async -> Void)?
+
+    init() {
+        setupRemoteCommands()
+    }
+
+    // MARK: Public API
 
     func play(trackId: String) async {
+        // Alten Player sauber abreissen (sonst spielen 2 Tracks parallel)
+        teardownCurrent()
         errorMessage = nil
+
         do {
             // 1) Manifest holen (Signed-URL + masterKey)
             let manifest = try await API.shared.streamManifest(trackId: trackId)
@@ -39,8 +61,7 @@ final class Player {
             guard keyBytes.count == 32 else { throw APIError.decodingError("key must be 32 bytes") }
             let key = SymmetricKey(data: keyBytes)
 
-            // 4) AES-256-GCM entschluesseln
-            // Layout: [12 IV][ciphertext..][16 tag]
+            // 4) AES-256-GCM entschluesseln — Layout: [12 IV][ciphertext..][16 tag]
             guard ciphertextData.count > 28 else {
                 throw APIError.decodingError("ciphertext too short")
             }
@@ -54,23 +75,26 @@ final class Player {
                                                 tag: tag)
             let plaintext = try AES.GCM.open(sealed, using: key)
 
-            // 5) Zu Temp-File schreiben und in AVPlayer laden
+            // 5) Temp-File schreiben + AVPlayer laden
             let tempURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("rolify-\(trackId).m4a")
             try plaintext.write(to: tempURL, options: .atomic)
 
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, policy: .longFormAudio)
             try AVAudioSession.sharedInstance().setActive(true)
 
             let item = AVPlayerItem(url: tempURL)
             let player = AVPlayer(playerItem: item)
+            player.automaticallyWaitsToMinimizeStalling = false
             self.avPlayer = player
 
             setupTimeObserver()
-            setupNowPlayingInfo(manifest: manifest)
+            setupEndObserver(for: item)
+            await setupNowPlayingInfo(manifest: manifest)
 
             player.play()
             isPlaying = true
+            updatePlaybackRateInfo(rate: 1.0)
         } catch {
             errorMessage = "Playback-Fehler: \(error.localizedDescription)"
             print("Player error: \(error)")
@@ -83,23 +107,58 @@ final class Player {
         if isPlaying {
             p.pause()
             isPlaying = false
+            updatePlaybackRateInfo(rate: 0.0)
         } else {
             p.play()
             isPlaying = true
+            updatePlaybackRateInfo(rate: 1.0)
+        }
+    }
+
+    func seek(seconds: Double) {
+        guard let p = avPlayer else { return }
+        let target = CMTime(seconds: max(0, seconds), preferredTimescale: 600)
+        p.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+            Task { @MainActor in
+                self?.progressSeconds = seconds
+                self?.updateElapsedTimeInfo()
+            }
         }
     }
 
     func stop() {
+        teardownCurrent()
+        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+    }
+
+    // MARK: Teardown
+
+    /// Reisst aktuelle Playback-Session sauber ab. KRITISCH: removeTimeObserver MUSS vor
+    /// avPlayer = nil laufen, sonst leakt der Observer und der alte AVPlayer laeuft im Background.
+    private func teardownCurrent() {
+        if let obs = timeObserver, let p = avPlayer {
+            p.removeTimeObserver(obs)
+        }
+        timeObserver = nil
+
+        if let ob = endObserver {
+            NotificationCenter.default.removeObserver(ob)
+        }
+        endObserver = nil
+
         avPlayer?.pause()
+        avPlayer?.replaceCurrentItem(with: nil)
         avPlayer = nil
+
         isPlaying = false
         currentTrack = nil
         progressSeconds = 0
-        if let obs = timeObserver {
-            avPlayer?.removeTimeObserver(obs)
-            timeObserver = nil
-        }
+        durationSeconds = 0
+
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
+
+    // MARK: Observers
 
     private func setupTimeObserver() {
         guard let player = avPlayer else { return }
@@ -111,20 +170,147 @@ final class Player {
                 if let d = player.currentItem?.duration, d.isValid && !d.isIndefinite {
                     self.durationSeconds = CMTimeGetSeconds(d)
                 }
+                self.updateElapsedTimeInfo()
             }
         }
     }
 
-    private func setupNowPlayingInfo(manifest: StreamManifest) {
+    private func setupEndObserver(for item: AVPlayerItem) {
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                // Ruft queue onAdvance auf falls vorhanden (Chunk 11). Sonst: stop.
+                if let advance = self?.onAdvance {
+                    await advance()
+                } else {
+                    self?.stop()
+                }
+            }
+        }
+    }
+
+    // MARK: NowPlayingInfo + Artwork
+
+    private func setupNowPlayingInfo(manifest: StreamManifest) async {
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: manifest.title,
             MPMediaItemPropertyArtist: manifest.artist,
             MPMediaItemPropertyAlbumTitle: manifest.album,
             MPMediaItemPropertyPlaybackDuration: Double(manifest.durationMs) / 1000.0,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: 0.0,
+            MPNowPlayingInfoPropertyPlaybackRate: 1.0,
+            MPNowPlayingInfoPropertyMediaType: MPNowPlayingInfoMediaType.audio.rawValue,
         ]
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+
+        // Artwork async nachladen — kein Block, damit Title sofort auf Lockscreen sichtbar ist
+        if let artwork = await NowPlayingArtwork.load(from: manifest.coverUrl) {
+            var updated = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+            updated[MPMediaItemPropertyArtwork] = artwork
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = updated
+        }
+    }
+
+    private func updateElapsedTimeInfo() {
+        guard var info = MPNowPlayingInfoCenter.default().nowPlayingInfo else { return }
+        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = progressSeconds
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    private func updatePlaybackRateInfo(rate: Double) {
+        guard var info = MPNowPlayingInfoCenter.default().nowPlayingInfo else { return }
+        info[MPNowPlayingInfoPropertyPlaybackRate] = rate
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    // MARK: Remote Commands (Lockscreen, Control Center, Bluetooth-Auto)
+
+    private func setupRemoteCommands() {
+        guard !remoteCommandsSetup else { return }
+        remoteCommandsSetup = true
+
+        let c = MPRemoteCommandCenter.shared()
+
+        c.playCommand.addTarget { [weak self] _ in
+            Task { @MainActor in
+                guard let self, let p = self.avPlayer else { return }
+                if !self.isPlaying {
+                    p.play()
+                    self.isPlaying = true
+                    self.updatePlaybackRateInfo(rate: 1.0)
+                }
+            }
+            return .success
+        }
+
+        c.pauseCommand.addTarget { [weak self] _ in
+            Task { @MainActor in
+                guard let self, let p = self.avPlayer else { return }
+                if self.isPlaying {
+                    p.pause()
+                    self.isPlaying = false
+                    self.updatePlaybackRateInfo(rate: 0.0)
+                }
+            }
+            return .success
+        }
+
+        c.togglePlayPauseCommand.addTarget { [weak self] _ in
+            Task { @MainActor in self?.togglePlayPause() }
+            return .success
+        }
+
+        c.nextTrackCommand.addTarget { [weak self] _ in
+            Task { @MainActor in
+                if let advance = self?.onAdvance { await advance() }
+            }
+            return .success
+        }
+
+        c.previousTrackCommand.addTarget { [weak self] _ in
+            Task { @MainActor in
+                if let rewind = self?.onRewind { await rewind() }
+            }
+            return .success
+        }
+
+        c.changePlaybackPositionCommand.addTarget { [weak self] ev in
+            guard let e = ev as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+            Task { @MainActor in self?.seek(seconds: e.positionTime) }
+            return .success
+        }
+
+        // Skip-Seconds (±15s) deaktivieren - fuer BT-Auto das manche dafuer Next/Previous mappen
+        c.skipForwardCommand.isEnabled = false
+        c.skipBackwardCommand.isEnabled = false
     }
 }
+
+// MARK: - Artwork Loader
+
+enum NowPlayingArtwork {
+    private static var cache: [String: MPMediaItemArtwork] = [:]
+
+    static func load(from urlString: String) async -> MPMediaItemArtwork? {
+        if let cached = cache[urlString] { return cached }
+        guard let url = URL(string: urlString) else { return nil }
+
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard let image = UIImage(data: data) else { return nil }
+            let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+            cache[urlString] = artwork
+            return artwork
+        } catch {
+            return nil
+        }
+    }
+}
+
+// MARK: - Helpers
 
 private func hexToBytes(_ hex: String) throws -> Data {
     var data = Data(capacity: hex.count / 2)
