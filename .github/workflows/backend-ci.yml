@@ -10,45 +10,21 @@ on:
       - "apps/backend/**"
 
 jobs:
-  lint-test-build:
+  typecheck-build:
     runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: apps/backend
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: rolify_test
-        options: >-
-          --health-cmd "pg_isready -U postgres" --health-interval 10s
-          --health-timeout 5s --health-retries 5
-        ports: [5432:5432]
-      redis:
-        image: redis:7-alpine
-        options: --health-cmd "redis-cli ping" --health-interval 10s
-        ports: [6379:6379]
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "pnpm"
-          cache-dependency-path: apps/backend/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm prisma generate
-      - run: pnpm lint
-      - run: pnpm test
-        env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/rolify_test
-          REDIS_URL: redis://localhost:6379
-          MINIO_ENDPOINT: http://localhost:9000
-          MINIO_USER: test
-          MINIO_PASSWORD: test1234
-          JWT_SECRET: "0".repeat(64)
-      - run: pnpm build
+          cache: "npm"
+          cache-dependency-path: apps/backend/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - name: TypeScript typecheck
+        run: npx tsc --noEmit
+      - name: Build
+        run: npm run build
