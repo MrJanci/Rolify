@@ -257,7 +257,7 @@ final class API {
     }
 
     func deletePlaylist(id: String) async throws {
-        let _: EmptyResponse = try await requestRawOk("/playlists/\(id)", method: "DELETE")
+        try await requestVoid("/playlists/\(id)", method: "DELETE")
     }
 
     func addTracksToPlaylist(_ id: String, trackIds: [String]) async throws {
@@ -266,14 +266,14 @@ final class API {
     }
 
     func removeTrackFromPlaylist(_ id: String, trackId: String) async throws {
-        let _: EmptyResponse = try await requestRawOk("/playlists/\(id)/tracks/\(trackId)", method: "DELETE")
+        try await requestVoid("/playlists/\(id)/tracks/\(trackId)", method: "DELETE")
     }
 
     func reorderPlaylist(_ id: String, moves: [(trackId: String, position: Int)]) async throws {
         struct Move: Encodable { let trackId: String; let position: Int }
         struct Body: Encodable { let moves: [Move] }
         let payload = Body(moves: moves.map { Move(trackId: $0.trackId, position: $0.position) })
-        let _: EmptyResponse = try await requestRawOk("/playlists/\(id)/reorder", method: "PATCH", body: payload)
+        try await requestVoid("/playlists/\(id)/reorder", method: "PATCH", body: payload)
     }
 
     func albumDetail(id: String) async throws -> AlbumDetail {
@@ -286,18 +286,17 @@ final class API {
 
     // MARK: Request-raw helpers
 
-    private struct EmptyResponse: Decodable {}
     private struct AddedResponse: Decodable { let added: Int }
 
-    private func requestRawOk<T: Decodable>(_ path: String, method: String, body: (any Encodable)? = nil) async throws -> T {
-        // Wie `request<T>`, aber akzeptiert 204/empty bodies
+    /// Fuer DELETE / PATCH-no-body Endpoints (204 No Content)
+    private func requestVoid(_ path: String, method: String, body: (any Encodable)? = nil) async throws {
         let url = baseURL.appendingPathComponent(path)
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         if let body {
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.httpBody = try JSONEncoder().encode(AnyCodableBody(body))
+            req.httpBody = try JSONEncoder().encode(AnyEncodable(body))
         }
         guard let token = accessToken else { throw APIError.unauthorized }
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -306,14 +305,13 @@ final class API {
         guard let http = resp as? HTTPURLResponse else { throw APIError.httpError(-1, "no response") }
         if http.statusCode == 401 {
             try await refresh()
-            return try await requestRawOk(path, method: method, body: body)
+            try await requestVoid(path, method: method, body: body)
+            return
         }
         guard (200..<300).contains(http.statusCode) else {
             let bodyStr = String(data: data, encoding: .utf8) ?? ""
             throw APIError.httpError(http.statusCode, bodyStr.prefix(400).description)
         }
-        if data.isEmpty { return (EmptyResponse() as? T)! }
-        return try JSONDecoder().decode(T.self, from: data)
     }
 
     // MARK: Request-Core
@@ -360,6 +358,3 @@ private struct AnyEncodable: Encodable {
     init(_ w: any Encodable) { self.wrapped = w }
     func encode(to encoder: Encoder) throws { try wrapped.encode(to: encoder) }
 }
-
-// Alias for use from nested contexts
-private typealias AnyCodableBody = AnyEncodable
