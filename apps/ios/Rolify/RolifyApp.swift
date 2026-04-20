@@ -4,7 +4,7 @@ import SwiftUI
 struct RolifyApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            AppRoot()
                 .preferredColorScheme(.dark)
         }
     }
