@@ -51,6 +51,9 @@ apps/ios/**/xcuserdata/
 apps/ios/**/*.xcworkspace/xcuserdata/
 apps/ios/**/*.xcodeproj/xcuserdata/
 apps/ios/**/*.xcodeproj/project.xcworkspace/xcuserdata/
+# .xcodeproj wird via XcodeGen generiert, nicht committed
+apps/ios/**/*.xcodeproj/
+apps/ios/**/*.xcworkspace/
 *.ipa
 *.dSYM.zip
 
