@@ -1,11 +1,8 @@
 name: backend-deploy
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "apps/backend/**"
-      - "infra/**"
+  # Auto-Deploy via push erst aktivieren wenn VPS_HOST/VPS_USER/VPS_SSH_KEY Secrets gesetzt sind.
+  # Aktuell nur manuell via GitHub Actions "Run workflow".
   workflow_dispatch:
 
 permissions:
