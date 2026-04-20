@@ -44,6 +44,26 @@ struct BrowseHomeResponse: Codable {
     let tracks: [TrackListItem]
 }
 
+struct ArtistListItem: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let imageUrl: String?
+}
+
+struct AlbumListItem: Codable, Identifiable, Hashable {
+    let id: String
+    let title: String
+    let artist: String
+    let coverUrl: String
+    let releaseYear: Int
+}
+
+struct SearchResponse: Codable {
+    let tracks: [TrackListItem]
+    let artists: [ArtistListItem]
+    let albums: [AlbumListItem]
+}
+
 struct StreamManifest: Codable {
     let trackId: String
     let title: String
@@ -138,6 +158,13 @@ final class API {
 
     func streamManifest(trackId: String) async throws -> StreamManifest {
         try await request("/stream/\(trackId)", method: "GET")
+    }
+
+    func search(q: String) async throws -> SearchResponse {
+        var components = URLComponents()
+        components.queryItems = [URLQueryItem(name: "q", value: q)]
+        let qs = components.percentEncodedQuery ?? ""
+        return try await request("/search?\(qs)", method: "GET")
     }
 
     // MARK: Request-Core
