@@ -25,7 +25,8 @@ struct ArtistDetailView: View {
                             Button {
                                 guard let first = detail.topTracks.first else { return }
                                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                Task { await player.play(trackId: first.id) }
+                                let q = detail.topTracks.map { QueueTrack($0) }
+                                Task { await player.play(queue: q, startingAt: first.id) }
                             } label: {
                                 HStack(spacing: 8) {
                                     Image(systemName: "play.fill").font(.system(size: 16, weight: .black))
@@ -46,7 +47,8 @@ struct ArtistDetailView: View {
                                 ForEach(detail.topTracks) { t in
                                     Button {
                                         UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-                                        Task { await player.play(trackId: t.id) }
+                                        let q = detail.topTracks.map { QueueTrack($0) }
+                                        Task { await player.play(queue: q, startingAt: t.id) }
                                     } label: {
                                         HStack(spacing: DS.m) {
                                             CoverImage(url: t.coverUrl, cornerRadius: DS.radiusS)

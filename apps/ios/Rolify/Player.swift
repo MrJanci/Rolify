@@ -29,13 +29,32 @@ final class Player {
     private var endObserver: NSObjectProtocol?
     private var remoteCommandsSetup = false
 
-    /// Wird vom PlaybackQueue/NowPlayingSheet ueberschrieben (Chunk 11).
-    /// Default: nil -> nextTrack-Command der Lockscreen ist wirkungslos.
-    var onAdvance: (() async -> Void)?
-    var onRewind: (() async -> Void)?
-
     init() {
         setupRemoteCommands()
+    }
+
+    // MARK: Queue-Helpers
+
+    /// Startet Playback einer kompletten Queue. Wiring fuer onAdvance/onRewind
+    /// setzt Player auf Queue.advance/rewind (Lockscreen + End-of-Track).
+    func play(queue tracks: [QueueTrack], startingAt trackId: String) async {
+        PlaybackQueue.shared.setQueue(tracks, startingAt: trackId)
+        await play(trackId: trackId)
+    }
+
+    /// Wird beim End-of-Track vom AVPlayerItemDidPlayToEndTime-Observer aufgerufen.
+    private func advanceQueue() async {
+        if let next = PlaybackQueue.shared.advance() {
+            await play(trackId: next.id)
+        } else {
+            stop()
+        }
+    }
+
+    private func rewindQueue() async {
+        if let prev = PlaybackQueue.shared.rewind() {
+            await play(trackId: prev.id)
+        }
     }
 
     // MARK: Public API
@@ -182,12 +201,7 @@ final class Player {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                // Ruft queue onAdvance auf falls vorhanden (Chunk 11). Sonst: stop.
-                if let advance = self?.onAdvance {
-                    await advance()
-                } else {
-                    self?.stop()
-                }
+                await self?.advanceQueue()
             }
         }
     }
@@ -264,16 +278,12 @@ final class Player {
         }
 
         c.nextTrackCommand.addTarget { [weak self] _ in
-            Task { @MainActor in
-                if let advance = self?.onAdvance { await advance() }
-            }
+            Task { @MainActor in await self?.advanceQueue() }
             return .success
         }
 
         c.previousTrackCommand.addTarget { [weak self] _ in
-            Task { @MainActor in
-                if let rewind = self?.onRewind { await rewind() }
-            }
+            Task { @MainActor in await self?.rewindQueue() }
             return .success
         }
 
