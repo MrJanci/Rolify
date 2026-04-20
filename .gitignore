@@ -65,6 +65,12 @@ scraping/ui_scraper/output/traces/
 scraping/ui_scraper/output/videos/
 scraping/music_acquirer/tmp/
 
+# Design-Tokens raw outputs (gross — lokal, nicht committen)
+design-tokens/screenshots/
+design-tokens/brand/raw/
+design-tokens/wireframes/screens/
+design-tokens/wireframes/traces/
+
 # Docker volumes
 infra/data/
 infra/volumes/

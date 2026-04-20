@@ -22,10 +22,13 @@ from rich.table import Table
 from .agents import (
     AgentContext,
     AgentResult,
+    AppStoreGalleryAgent,
     ColorsAgent,
     FlowsAgent,
     IconsAgent,
     ScreenshotsAgent,
+    SpotifyBrandAgent,
+    SpotifyWebPlayerAgent,
     TypographyAgent,
 )
 from .config import settings
@@ -34,7 +37,16 @@ log = structlog.get_logger()
 console = Console()
 
 
-AGENT_CLASSES = [ScreenshotsAgent, ColorsAgent, TypographyAgent, IconsAgent, FlowsAgent]
+AGENT_CLASSES = [
+    # Web-Player Scraping (Layout, Colors, Typography, Icons, Flows)
+    ScreenshotsAgent, ColorsAgent, TypographyAgent, IconsAgent, FlowsAgent,
+    # Deep-Scrape einzelner Pages (Album/Artist/Playlist Web-Player)
+    SpotifyWebPlayerAgent,
+    # Offizielle Brand-Referenz
+    SpotifyBrandAgent,
+    # iOS-App-Screenshots (authoritative UI-Renders)
+    AppStoreGalleryAgent,
+]
 
 
 async def orchestrate(output_dir: Path) -> list[AgentResult]:
