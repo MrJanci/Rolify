@@ -1,8 +1,6 @@
 # Rolify
 
-Spotify-Klon als Schulabschlussprojekt. Native iOS App, eigenes Backend, automatisierte Music-Acquisition-Pipeline, Custom-DRM fuer Offline-Songs, Jam-Feature.
-
-Implementierungs-Plan: `C:\Users\dev\.claude\plans\ja-mach-nen-vollst-ndig-delightful-journal.md`
+Self-hosted Spotify-Klon. Native iOS App, eigenes Backend, automatisierte Music-Acquisition-Pipeline, Custom-DRM fuer Offline-Songs, Jam-Feature.
 
 ## Struktur
 

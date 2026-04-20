@@ -6,7 +6,8 @@ on:
   workflow_dispatch:
 
 # Baut ein UNSIGNED .ipa auf macOS-Runner. Signing passiert clientseitig via SideStore.
-# Free-Tier-Limit: 200 min/month fuer private Repos. Public = unlimited.
+# Xcode-Projekt wird aus apps/ios/project.yml via XcodeGen on-the-fly generiert —
+# .xcodeproj ist deshalb nicht im Git (sparsamer und keine Merge-Konflikte).
 
 jobs:
   build:
@@ -17,24 +18,18 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.0.app
 
-      - name: Generate Design-System from tokens
-        run: |
-          if [ -f scripts/generate-design-system.ts ]; then
-            npm install -g tsx
-            tsx scripts/generate-design-system.ts
-          else
-            echo "No design-system generator yet, skipping."
-          fi
+      - name: Install XcodeGen
+        run: brew install xcodegen
 
-      - name: Resolve SwiftPM dependencies
+      - name: Generate Xcode project
+        working-directory: apps/ios
+        run: xcodegen generate
+
+      - name: Show project structure
         working-directory: apps/ios
         run: |
-          if [ -f Rolify.xcodeproj/project.pbxproj ]; then
-            xcodebuild -resolvePackageDependencies -project Rolify.xcodeproj -scheme Rolify
-          else
-            echo "Xcode-Projekt noch nicht erstellt — Woche 5."
-            exit 0
-          fi
+          ls -la
+          xcodebuild -project Rolify.xcodeproj -list
 
       - name: Archive (unsigned)
         working-directory: apps/ios
@@ -43,23 +38,28 @@ jobs:
             -project Rolify.xcodeproj \
             -scheme Rolify \
             -configuration Release \
-            -archivePath $PWD/build/Rolify.xcarchive \
             -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -archivePath $PWD/build/Rolify.xcarchive \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            | xcpretty && exit ${PIPESTATUS[0]}
+        shell: bash
 
       - name: Export unsigned .ipa
         working-directory: apps/ios
         run: |
+          set -euo pipefail
           mkdir -p build/ipa/Payload
           cp -R build/Rolify.xcarchive/Products/Applications/Rolify.app build/ipa/Payload/
           cd build/ipa
           zip -qr Rolify-unsigned.ipa Payload
-          cd -
-          ls -la build/ipa/
+          ls -la Rolify-unsigned.ipa
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
           name: Rolify-unsigned-ipa
           path: apps/ios/build/ipa/Rolify-unsigned.ipa
