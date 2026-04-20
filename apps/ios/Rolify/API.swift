@@ -95,6 +95,41 @@ struct PlaylistTrackItem: Codable, Identifiable, Hashable {
     let position: Int
 }
 
+struct AlbumTrackItem: Codable, Identifiable, Hashable {
+    let id: String
+    let title: String
+    let durationMs: Int
+    let trackNumber: Int
+    let artist: String
+    let artistId: String
+    let album: String
+    let albumId: String
+    let coverUrl: String
+}
+
+struct ArtistSummary: Codable, Hashable {
+    let id: String
+    let name: String
+    let imageUrl: String?
+}
+
+struct AlbumDetail: Codable, Hashable {
+    let id: String
+    let title: String
+    let coverUrl: String
+    let releaseYear: Int
+    let artist: ArtistSummary
+    let tracks: [AlbumTrackItem]
+}
+
+struct ArtistDetail: Codable, Hashable {
+    let id: String
+    let name: String
+    let imageUrl: String
+    let topTracks: [AlbumTrackItem]
+    let albums: [AlbumListItem]
+}
+
 struct StreamManifest: Codable {
     let trackId: String
     let title: String
@@ -229,6 +264,14 @@ final class API {
         struct Body: Encodable { let moves: [Move] }
         let payload = Body(moves: moves.map { Move(trackId: $0.trackId, position: $0.position) })
         let _: EmptyResponse = try await requestRawOk("/playlists/\(id)/reorder", method: "PATCH", body: payload)
+    }
+
+    func albumDetail(id: String) async throws -> AlbumDetail {
+        try await request("/albums/\(id)", method: "GET")
+    }
+
+    func artistDetail(id: String) async throws -> ArtistDetail {
+        try await request("/artists/\(id)", method: "GET")
     }
 
     // MARK: Request-raw helpers

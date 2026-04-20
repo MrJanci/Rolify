@@ -57,6 +57,12 @@ struct LibraryView: View {
                 PlaylistDetailView(playlistId: id, initialName: name)
             }
         }
+        .navigationDestination(for: LibraryRoute.self) { route in
+            switch route {
+            case let .album(id): AlbumDetailView(albumId: id)
+            case let .artist(id): ArtistDetailView(artistId: id)
+            }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -137,6 +143,11 @@ struct LibraryView: View {
 
 enum PlaylistRoute: Hashable {
     case detail(String, String?)
+}
+
+enum LibraryRoute: Hashable {
+    case album(String)
+    case artist(String)
 }
 
 // MARK: Create Playlist sheet

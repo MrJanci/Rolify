@@ -18,6 +18,8 @@ import meRoutes from "./routes/me.js";
 import userRoutes from "./routes/users.js";
 import playlistRoutes from "./routes/playlists.js";
 import trackRoutes from "./routes/tracks.js";
+import albumRoutes from "./routes/albums.js";
+import artistRoutes from "./routes/artists.js";
 import libraryRoutes from "./routes/library.js";
 import searchRoutes from "./routes/search.js";
 import browseRoutes from "./routes/browse.js";
@@ -62,6 +64,8 @@ async function buildServer() {
   await app.register(userRoutes);
   await app.register(playlistRoutes);
   await app.register(trackRoutes);
+  await app.register(albumRoutes);
+  await app.register(artistRoutes);
   await app.register(libraryRoutes);
   await app.register(searchRoutes);
   await app.register(browseRoutes);
