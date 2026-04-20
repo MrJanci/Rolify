@@ -17,6 +17,8 @@ desktop.ini
 infra/.env
 infra/certs/
 **/secrets/
+scraping/.spotify-token.json
+**/.spotify-token.json
 
 # Node
 node_modules/
