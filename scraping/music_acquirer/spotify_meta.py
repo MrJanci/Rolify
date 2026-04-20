@@ -1,15 +1,19 @@
 """Spotify-Metadata-Harvester.
 
-Nutzt Spotify Web API mit Client-Credentials-Flow (kein User-Login).
-Keine Audio-Downloads hier — nur strukturierte Metadaten als Input fuer
-die YouTube-Matching-Stage.
+Seit der Feb-2026 Migration braucht `/playlists/{id}/items` Authorization-Code-Flow
+(OAuth mit User-Consent) — Client-Credentials-Flow gibt nur 401 fuer Playlists.
+
+Erstes Ausfuehren oeffnet den Browser, User akzeptiert Scope einmal,
+Refresh-Token wird im `.spotify-token.json` gecacht (nicht committet).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import spotipy
-from spotipy.oauth2 import SpotifyClientCredentials
+from spotipy.cache_handler import CacheFileHandler
+from spotipy.oauth2 import SpotifyOAuth
 
 from .config import settings
 
@@ -28,10 +32,19 @@ class TrackMeta:
     release_date: str
 
 
+SCOPES = "playlist-read-private playlist-read-collaborative user-library-read"
+CACHE_PATH = Path(__file__).resolve().parent.parent / ".spotify-token.json"
+
+
 def _client() -> spotipy.Spotify:
-    auth = SpotifyClientCredentials(
+    auth = SpotifyOAuth(
         client_id=settings.spotify_client_id,
         client_secret=settings.spotify_client_secret,
+        redirect_uri="http://127.0.0.1:3000/callback",
+        scope=SCOPES,
+        cache_handler=CacheFileHandler(cache_path=str(CACHE_PATH)),
+        open_browser=True,
+        show_dialog=False,
     )
     return spotipy.Spotify(auth_manager=auth)
 
@@ -49,8 +62,12 @@ def fetch_playlist_tracks(playlist_uri: str) -> list[TrackMeta]:
         if not items:
             break
         for item in items:
-            track = item.get("track")
-            if not track or track.get("is_local"):
+            # Feb-2026 Migration: 'track' -> 'item' (Spotify renamed field)
+            track = item.get("item") or item.get("track")
+            if not track or item.get("is_local") or track.get("is_local"):
+                continue
+            # Skip episodes/podcasts, nur Tracks
+            if track.get("type") and track["type"] != "track":
                 continue
             results.append(_to_meta(track))
         offset += len(items)
