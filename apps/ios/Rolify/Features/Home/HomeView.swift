@@ -29,7 +29,8 @@ struct HomeView: View {
                                     isCurrent: player.currentTrack?.trackId == t.id,
                                     isPlaying: player.isPlaying && player.currentTrack?.trackId == t.id
                                 ) {
-                                    Task { await player.play(trackId: t.id) }
+                                    let q = tracks.prefix(10).map { QueueTrack($0) }
+                                    Task { await player.play(queue: Array(q), startingAt: t.id) }
                                 }
                             }
                         }

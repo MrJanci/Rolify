@@ -41,7 +41,8 @@ struct LibraryView: View {
                                 isCurrent: player.currentTrack?.trackId == t.id,
                                 isPlaying: player.isPlaying && player.currentTrack?.trackId == t.id
                             ) {
-                                Task { await player.play(trackId: t.id) }
+                                let qtracks = tracks.map { QueueTrack($0) }
+                                Task { await player.play(queue: qtracks, startingAt: t.id) }
                             }
                             Divider().background(DS.divider).padding(.leading, 88)
                         }

@@ -129,7 +129,8 @@ struct SearchView: View {
                                 isCurrent: player.currentTrack?.trackId == t.id,
                                 isPlaying: player.isPlaying && player.currentTrack?.trackId == t.id
                             ) {
-                                Task { await player.play(trackId: t.id) }
+                                let q = r.tracks.map { QueueTrack($0) }
+                                Task { await player.play(queue: q, startingAt: t.id) }
                             }
                         }
                     }
