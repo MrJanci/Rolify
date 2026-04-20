@@ -1,0 +1,165 @@
+// Rolify Prisma Schema
+// Generiert Client nach `pnpm prisma generate`
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pg_trgm]
+}
+
+model User {
+  id                 String     @id @default(cuid())
+  email              String     @unique
+  passwordHash       String
+  displayName        String
+  avatarUrl          String?
+  bio                String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  // [Phase 2] Payments — initial ACTIVE per Default
+  stripeCustomerId   String?    @unique
+  subscriptionStatus SubStatus  @default(ACTIVE)
+  subscriptionEndsAt DateTime?
+
+  playlists          Playlist[]
+  library            LibraryTrack[]
+  offlineLicenses    OfflineLicense[]
+  sessions           Session[]
+  jamSessions        JamSession[]   @relation("JamHost")
+}
+
+model Artist {
+  id       String   @id @default(cuid())
+  name     String   @unique
+  imageUrl String?
+  albums   Album[]
+  tracks   Track[]
+}
+
+model Album {
+  id          String   @id
+  title       String
+  coverUrl    String
+  releaseYear Int
+  artistId    String
+  artist      Artist   @relation(fields: [artistId], references: [id])
+  tracks      Track[]
+
+  @@index([artistId])
+}
+
+model Track {
+  id               String   @id @default(cuid())
+  title            String
+  durationMs       Int
+  trackNumber      Int
+  isrc             String?  @unique
+  spotifyId        String?  @unique
+  albumId          String
+  album            Album    @relation(fields: [albumId], references: [id])
+  artistId         String
+  artist           Artist   @relation(fields: [artistId], references: [id])
+  encryptedBlobKey String
+  masterKey        Bytes
+  createdAt        DateTime @default(now())
+
+  playlistTracks   PlaylistTrack[]
+  libraryEntries   LibraryTrack[]
+  offlineLicenses  OfflineLicense[]
+
+  @@index([title])
+  @@index([artistId])
+  @@index([albumId])
+}
+
+model Playlist {
+  id          String          @id @default(cuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  coverUrl    String?
+  description String?
+  isPublic    Boolean         @default(false)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  tracks      PlaylistTrack[]
+
+  @@index([userId])
+}
+
+model PlaylistTrack {
+  playlistId String
+  trackId    String
+  position   Int
+  addedAt    DateTime @default(now())
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  track      Track    @relation(fields: [trackId], references: [id])
+
+  @@id([playlistId, trackId])
+  @@index([playlistId, position])
+}
+
+model LibraryTrack {
+  userId  String
+  trackId String
+  savedAt DateTime @default(now())
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  track   Track    @relation(fields: [trackId], references: [id])
+
+  @@id([userId, trackId])
+  @@index([userId, savedAt])
+}
+
+model OfflineLicense {
+  id           String   @id @default(cuid())
+  userId       String
+  trackId      String
+  encryptedKey Bytes
+  issuedAt     DateTime @default(now())
+  expiresAt    DateTime
+  deviceId     String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  track        Track    @relation(fields: [trackId], references: [id])
+
+  @@unique([userId, trackId, deviceId])
+  @@index([expiresAt])
+}
+
+model Session {
+  id               String   @id @default(cuid())
+  userId           String
+  deviceId         String
+  devicePubKey     Bytes?
+  refreshTokenHash String   @unique
+  userAgent        String?
+  lastSeenAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model JamSession {
+  id         String    @id @default(cuid())
+  hostUserId String
+  host       User      @relation("JamHost", fields: [hostUserId], references: [id])
+  code       String    @unique
+  createdAt  DateTime  @default(now())
+  endedAt    DateTime?
+
+  @@index([code])
+}
+
+enum SubStatus {
+  NONE
+  ACTIVE
+  PAST_DUE
+  GRACE
+  CANCELED
+}

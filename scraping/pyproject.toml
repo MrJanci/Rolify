@@ -1,0 +1,17 @@
+[project]
+name = "rolify-scraping"
+version = "0.1.0"
+description = "Rolify UI-Scraping + Music-Acquisition Pipeline"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "ASYNC"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

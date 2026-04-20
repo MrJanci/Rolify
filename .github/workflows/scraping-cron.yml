@@ -1,0 +1,32 @@
+name: scraping-cron
+
+on:
+  schedule:
+    - cron: "0 3 * * *"   # taeglich 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      playlist_uri:
+        description: "Spotify Playlist URI (spotify:playlist:xyz)"
+        required: true
+        type: string
+
+# Laeuft die Music-Acquisition-Pipeline via SSH auf dem VPS, wo ffmpeg + MinIO + Postgres laufen.
+# Der Scheduler hier triggert nur — die eigentliche Arbeit passiert auf der Zielmaschine.
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Trigger pipeline on VPS
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: PLAYLIST_URI
+          script: |
+            cd /opt/rolify/scraping
+            source .venv/bin/activate
+            python -m music_acquirer.pipeline --playlist "${PLAYLIST_URI:-spotify:playlist:37i9dQZF1DXcBWIGoYBM5M}"
+        env:
+          PLAYLIST_URI: ${{ inputs.playlist_uri }}

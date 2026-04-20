@@ -1,0 +1,35 @@
+# Python 3.13 kompatibel (keine Minor-Version-Pins die vor Okt 2024 lagen)
+
+# === UI-Scraping ===
+playwright>=1.49.0           # Python 3.13 support ab 1.48
+beautifulsoup4>=4.12.3
+lxml>=5.3.0
+scikit-learn>=1.6.0          # 3.13 wheels
+numpy>=2.2.0
+Pillow>=11.0.0
+colormath>=3.0.0
+
+# === Music-Acquisition ===
+yt-dlp>=2024.11.18
+mutagen>=1.47.0
+ffmpeg-python>=0.2.0         # Python-wrapper (optional, nicht direkt genutzt)
+imageio-ffmpeg>=0.5.1        # Bundled ffmpeg binary - no system install needed
+spotipy>=2.24.0
+python-Levenshtein>=0.26.0
+tenacity>=9.0.0
+
+# === Shared / Infra ===
+httpx>=0.27.2
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+python-dotenv>=1.0.1
+cryptography>=43.0.3
+boto3>=1.35.40
+psycopg[binary]>=3.2.3
+structlog>=24.4.0
+rich>=13.9.2
+
+# === Dev ===
+pytest>=8.3.3
+pytest-asyncio>=0.24.0
+ruff>=0.8.0
