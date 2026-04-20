@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { FastifyInstance } from "fastify";
 import { prisma } from "../lib/prisma.js";
 import { generateRefreshToken, hashPassword, hashRefreshToken, verifyPassword } from "../lib/crypto.js";
-import { env } from "../config.js";
+import { env, isEmailAllowed } from "../config.js";
 
 const RegisterBody = z.object({
   email: z.string().email().toLowerCase(),
@@ -29,6 +29,11 @@ export default async function authRoutes(app: FastifyInstance) {
   app.post("/auth/register", strictAuthLimit, async (req, reply) => {
     const body = RegisterBody.parse(req.body);
 
+    // Email-Whitelist: unauthorisierte Emails kriegen generic 401 (kein enumeration-leak)
+    if (!isEmailAllowed(body.email)) {
+      return reply.status(401).send({ error: "invalid_credentials" });
+    }
+
     const existing = await prisma.user.findUnique({ where: { email: body.email } });
     // Same response-shape on conflict to avoid user enumeration timing leak
     if (existing) return reply.status(409).send({ error: "email_in_use" });
@@ -46,6 +51,12 @@ export default async function authRoutes(app: FastifyInstance) {
 
   app.post("/auth/login", strictAuthLimit, async (req, reply) => {
     const body = LoginBody.parse(req.body);
+
+    // Email-Whitelist: unauthorisierte Emails kriegen generic 401 (gleicher Error wie wrong-password)
+    if (!isEmailAllowed(body.email)) {
+      return reply.status(401).send({ error: "invalid_credentials" });
+    }
+
     const user = await prisma.user.findUnique({ where: { email: body.email } });
     if (!user || !(await verifyPassword(user.passwordHash, body.password))) {
       // Same error for "user doesn't exist" and "wrong password" -> no enumeration

@@ -24,7 +24,18 @@ const EnvSchema = z.object({
 
   SPOTIFY_CLIENT_ID: z.string().optional(),
   SPOTIFY_CLIENT_SECRET: z.string().optional(),
+
+  // Email-Whitelist (comma-separated). Leer = alle erlaubt.
+  ALLOWED_EMAILS: z.string().default(""),
 });
+
+// Helper: ist email in der Allowlist?
+export function isEmailAllowed(email: string): boolean {
+  const raw = process.env.ALLOWED_EMAILS?.trim() ?? "";
+  if (!raw) return true;   // keine Liste -> alle erlaubt
+  const list = raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return list.includes(email.trim().toLowerCase());
+}
 
 export type Env = z.infer<typeof EnvSchema>;
 
