@@ -5,6 +5,7 @@ struct ProfileView: View {
     @State private var profile: UserProfile?
     @State private var isLoading = true
     @State private var error: String?
+    @State private var showScraper = false
 
     var body: some View {
         ZStack {
@@ -39,6 +40,25 @@ struct ProfileView: View {
                             .foregroundStyle(DS.textSecondary)
                     }
 
+                    Spacer().frame(height: DS.xl)
+
+                    Button {
+                        showScraper = true
+                    } label: {
+                        HStack(spacing: DS.s) {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .font(.system(size: 18, weight: .semibold))
+                            Text("Musik scrapen")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        .foregroundStyle(DS.accent)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .background(DS.bgElevated)
+                        .clipShape(RoundedRectangle(cornerRadius: DS.radiusL, style: .continuous))
+                    }
+                    .padding(.horizontal, DS.xl)
+
                     Spacer()
 
                     Button {
@@ -66,6 +86,11 @@ struct ProfileView: View {
                     .font(DS.Font.headline)
                     .foregroundStyle(DS.textPrimary)
             }
+        }
+        .sheet(isPresented: $showScraper) {
+            AdminScrapeSheet()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
         .task { if profile == nil { await load() } }
     }
