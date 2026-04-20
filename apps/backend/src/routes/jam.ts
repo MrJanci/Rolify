@@ -35,7 +35,7 @@ export default async function jamRoutes(app: FastifyInstance) {
     const channel = `jam:${code}`;
     // TODO [Woche 9]: Redis pub/sub fuer cross-worker broadcast
     socket.send(JSON.stringify({ type: "hello", code, ts: Date.now() }));
-    socket.on("message", (raw) => {
+    socket.on("message", (raw: Buffer) => {
       // Echo-Skeleton — Woche 9 macht richtiges Protocol (track_change, control_play, etc.)
       void redis.publish(channel, raw.toString());
     });

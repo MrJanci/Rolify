@@ -8,7 +8,7 @@ export default async function healthRoutes(app: FastifyInstance) {
   app.get("/health/deep", async () => {
     const [dbOk, redisOk] = await Promise.all([
       prisma.$queryRaw`SELECT 1`.then(() => true).catch(() => false),
-      redis.ping().then((r) => r === "PONG").catch(() => false),
+      redis.ping().then((r: string) => r === "PONG").catch(() => false),
     ]);
     const ok = dbOk && redisOk;
     return { status: ok ? "ok" : "degraded", services: { db: dbOk, redis: redisOk } };
