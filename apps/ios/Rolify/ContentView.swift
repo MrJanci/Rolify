@@ -276,6 +276,7 @@ struct TrackRow: View {
                                 Image(systemName: isPlaying ? "waveform" : "pause.fill")
                                     .font(.system(size: 20, weight: .bold))
                                     .foregroundStyle(Rolify.accent)
+                                    .symbolEffect(.variableColor.iterative, options: .repeat(.continuous), isActive: isPlaying)
                             }
                             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                         }
