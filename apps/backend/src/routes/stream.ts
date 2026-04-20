@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { prisma } from "../lib/prisma.js";
-import { buckets, s3 } from "../lib/s3.js";
+import { buckets, s3Public } from "../lib/s3.js";
 import { env } from "../config.js";
 
 function publicCoverUrl(storedUrl: string): string {
@@ -39,12 +39,9 @@ export default async function streamRoutes(app: FastifyInstance) {
     if (!track) return reply.status(404).send({ error: "not_found" });
 
     const cmd = new GetObjectCommand({ Bucket: buckets.tracks, Key: track.encryptedBlobKey });
-    const signedCiphertextUrl = await getSignedUrl(s3, cmd, { expiresIn: 300 });
-
-    // MinIO internal URL ist http://minio:9000 — Client braucht public URL
-    const publicCiphertextUrl = env.MINIO_PUBLIC_ENDPOINT
-      ? signedCiphertextUrl.replace(env.MINIO_ENDPOINT, env.MINIO_PUBLIC_ENDPOINT)
-      : signedCiphertextUrl;
+    // Signing mit public-endpoint client: Signature ist fuer cdn.rolify.rolak.ch,
+    // Client connected auch dorthin, Host matched -> MinIO-Validierung passt.
+    const publicCiphertextUrl = await getSignedUrl(s3Public, cmd, { expiresIn: 300 });
 
     return {
       trackId: track.id,
