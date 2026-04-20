@@ -1,7 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import { prisma } from "../lib/prisma.js";
+import { env } from "../config.js";
 
-// Skeleton fuer Woche 4.
+function publicCoverUrl(storedUrl: string): string {
+  if (!storedUrl) return "";
+  if (storedUrl.startsWith("http")) return storedUrl;
+  const base = env.MINIO_PUBLIC_ENDPOINT ?? env.MINIO_ENDPOINT;
+  return `${base.replace(/\/$/, "")}${storedUrl}`;
+}
 
 export default async function trackRoutes(app: FastifyInstance) {
   app.addHook("preHandler", app.requireAuth);
@@ -9,32 +15,24 @@ export default async function trackRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string } }>("/tracks/:id", async (req, reply) => {
     const track = await prisma.track.findUnique({
       where: { id: req.params.id },
-      include: { artist: true, album: true },
+      include: {
+        artist: { select: { id: true, name: true } },
+        album: { select: { id: true, title: true, coverUrl: true } },
+      },
     });
     if (!track) return reply.status(404).send({ error: "not_found" });
     // Wichtig: masterKey NIE zurueckgeben.
-    const { masterKey: _omit, ...safe } = track;
-    return safe;
-  });
-
-  app.get<{ Params: { id: string } }>("/albums/:id", async (req, reply) => {
-    const album = await prisma.album.findUnique({
-      where: { id: req.params.id },
-      include: {
-        artist: true,
-        tracks: { orderBy: { trackNumber: "asc" }, select: { id: true, title: true, durationMs: true, trackNumber: true } },
-      },
-    });
-    if (!album) return reply.status(404).send({ error: "not_found" });
-    return album;
-  });
-
-  app.get<{ Params: { id: string } }>("/artists/:id/top-tracks", async (req) => {
-    return prisma.track.findMany({
-      where: { artistId: req.params.id },
-      orderBy: { createdAt: "desc" },
-      take: 10,
-      select: { id: true, title: true, durationMs: true, album: { select: { id: true, coverUrl: true } } },
-    });
+    return {
+      id: track.id,
+      title: track.title,
+      durationMs: track.durationMs,
+      trackNumber: track.trackNumber,
+      isrc: track.isrc,
+      artist: track.artist.name,
+      artistId: track.artist.id,
+      album: track.album.title,
+      albumId: track.album.id,
+      coverUrl: publicCoverUrl(track.album.coverUrl),
+    };
   });
 }

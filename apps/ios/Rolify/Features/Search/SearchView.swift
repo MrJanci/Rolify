@@ -26,6 +26,12 @@ struct SearchView: View {
 
             content
         }
+        .navigationDestination(for: LibraryRoute.self) { route in
+            switch route {
+            case let .album(id): AlbumDetailView(albumId: id)
+            case let .artist(id): ArtistDetailView(artistId: id)
+            }
+        }
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Was willst du hoeren?")
         .autocorrectionDisabled()
         .textInputAutocapitalization(.never)
@@ -146,39 +152,45 @@ struct SearchView: View {
     }
 
     private func artistRow(_ artist: ArtistListItem) -> some View {
-        HStack(spacing: DS.m) {
-            CoverImage(url: artist.imageUrl, cornerRadius: 28, placeholder: "person.fill")
-                .frame(width: 56, height: 56)
-            Text(artist.name)
-                .font(DS.Font.bodyLarge)
-                .foregroundStyle(DS.textPrimary)
-            Spacer()
-            Text("Kuenstler")
-                .font(.system(size: 12))
-                .foregroundStyle(DS.textSecondary)
+        NavigationLink(value: LibraryRoute.artist(artist.id)) {
+            HStack(spacing: DS.m) {
+                CoverImage(url: artist.imageUrl, cornerRadius: 28, placeholder: "person.fill")
+                    .frame(width: 56, height: 56)
+                Text(artist.name)
+                    .font(DS.Font.bodyLarge)
+                    .foregroundStyle(DS.textPrimary)
+                Spacer()
+                Text("Kuenstler")
+                    .font(.system(size: 12))
+                    .foregroundStyle(DS.textSecondary)
+            }
+            .padding(.horizontal, DS.xl)
+            .padding(.vertical, DS.s)
         }
-        .padding(.horizontal, DS.xl)
-        .padding(.vertical, DS.s)
+        .buttonStyle(.plain)
     }
 
     private func albumRow(_ album: AlbumListItem) -> some View {
-        HStack(spacing: DS.m) {
-            CoverImage(url: album.coverUrl, cornerRadius: DS.radiusS)
-                .frame(width: 56, height: 56)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(album.title)
-                    .font(DS.Font.bodyLarge)
-                    .foregroundStyle(DS.textPrimary)
-                    .lineLimit(1)
-                Text("Album · \(album.artist)")
-                    .font(DS.Font.caption)
-                    .foregroundStyle(DS.textSecondary)
-                    .lineLimit(1)
+        NavigationLink(value: LibraryRoute.album(album.id)) {
+            HStack(spacing: DS.m) {
+                CoverImage(url: album.coverUrl, cornerRadius: DS.radiusS)
+                    .frame(width: 56, height: 56)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(album.title)
+                        .font(DS.Font.bodyLarge)
+                        .foregroundStyle(DS.textPrimary)
+                        .lineLimit(1)
+                    Text("Album · \(album.artist)")
+                        .font(DS.Font.caption)
+                        .foregroundStyle(DS.textSecondary)
+                        .lineLimit(1)
+                }
+                Spacer()
             }
-            Spacer()
+            .padding(.horizontal, DS.xl)
+            .padding(.vertical, DS.s)
         }
-        .padding(.horizontal, DS.xl)
-        .padding(.vertical, DS.s)
+        .buttonStyle(.plain)
     }
 
     private func runSearch(_ q: String) async {
