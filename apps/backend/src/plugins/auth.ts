@@ -27,7 +27,9 @@ export default fp(async (app: FastifyInstance) => {
     try {
       await req.jwtVerify();
     } catch {
-      throw app.httpErrors?.unauthorized?.("invalid or missing token") ?? new Error("unauthorized");
+      const err = new Error("invalid or missing token") as Error & { statusCode?: number };
+      err.statusCode = 401;
+      throw err;
     }
   });
 });
