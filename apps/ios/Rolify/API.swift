@@ -64,6 +64,37 @@ struct SearchResponse: Codable {
     let albums: [AlbumListItem]
 }
 
+struct PlaylistSummary: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let description: String?
+    let coverUrl: String
+    let isPublic: Bool
+    let trackCount: Int
+}
+
+struct PlaylistDetail: Codable, Hashable {
+    let id: String
+    let name: String
+    let description: String?
+    let coverUrl: String
+    let isPublic: Bool
+    let ownerId: String
+    let tracks: [PlaylistTrackItem]
+}
+
+struct PlaylistTrackItem: Codable, Identifiable, Hashable {
+    let id: String
+    let title: String
+    let artist: String
+    let artistId: String
+    let album: String
+    let albumId: String
+    let coverUrl: String
+    let durationMs: Int
+    let position: Int
+}
+
 struct StreamManifest: Codable {
     let trackId: String
     let title: String
@@ -167,6 +198,71 @@ final class API {
         return try await request("/search?\(qs)", method: "GET")
     }
 
+    func myPlaylists() async throws -> [PlaylistSummary] {
+        try await request("/playlists/me", method: "GET")
+    }
+
+    func createPlaylist(name: String, description: String? = nil, isPublic: Bool = false) async throws -> PlaylistSummary {
+        struct Body: Encodable { let name: String; let description: String?; let isPublic: Bool }
+        return try await request("/playlists", method: "POST", body: Body(name: name, description: description, isPublic: isPublic))
+    }
+
+    func playlistDetail(id: String) async throws -> PlaylistDetail {
+        try await request("/playlists/\(id)", method: "GET")
+    }
+
+    func deletePlaylist(id: String) async throws {
+        let _: EmptyResponse = try await requestRawOk("/playlists/\(id)", method: "DELETE")
+    }
+
+    func addTracksToPlaylist(_ id: String, trackIds: [String]) async throws {
+        struct Body: Encodable { let trackIds: [String] }
+        let _: AddedResponse = try await request("/playlists/\(id)/tracks", method: "POST", body: Body(trackIds: trackIds))
+    }
+
+    func removeTrackFromPlaylist(_ id: String, trackId: String) async throws {
+        let _: EmptyResponse = try await requestRawOk("/playlists/\(id)/tracks/\(trackId)", method: "DELETE")
+    }
+
+    func reorderPlaylist(_ id: String, moves: [(trackId: String, position: Int)]) async throws {
+        struct Move: Encodable { let trackId: String; let position: Int }
+        struct Body: Encodable { let moves: [Move] }
+        let payload = Body(moves: moves.map { Move(trackId: $0.trackId, position: $0.position) })
+        let _: EmptyResponse = try await requestRawOk("/playlists/\(id)/reorder", method: "PATCH", body: payload)
+    }
+
+    // MARK: Request-raw helpers
+
+    private struct EmptyResponse: Decodable {}
+    private struct AddedResponse: Decodable { let added: Int }
+
+    private func requestRawOk<T: Decodable>(_ path: String, method: String, body: Encodable? = nil) async throws -> T {
+        // Wie `request<T>`, aber akzeptiert 204/empty bodies
+        let url = baseURL.appendingPathComponent(path)
+        var req = URLRequest(url: url)
+        req.httpMethod = method
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let body {
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = try JSONEncoder().encode(AnyCodableBody(body))
+        }
+        guard let token = accessToken else { throw APIError.unauthorized }
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse else { throw APIError.httpError(-1, "no response") }
+        if http.statusCode == 401 {
+            try await refresh()
+            return try await requestRawOk(path, method: method, body: body)
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let bodyStr = String(data: data, encoding: .utf8) ?? ""
+            throw APIError.httpError(http.statusCode, bodyStr.prefix(400).description)
+        }
+        if data.isEmpty { return (EmptyResponse() as? T)! }
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
     // MARK: Request-Core
 
     private func request<T: Decodable>(
@@ -211,3 +307,6 @@ private struct AnyEncodable: Encodable {
     init(_ w: Encodable) { self.wrapped = w }
     func encode(to encoder: Encoder) throws { try wrapped.encode(to: encoder) }
 }
+
+// Alias for use from nested contexts
+private typealias AnyCodableBody = AnyEncodable
