@@ -2,7 +2,7 @@ name: ios-build
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*", "ios-v*"]
   workflow_dispatch:
 
 # Baut ein UNSIGNED .ipa auf macOS-Runner. Signing passiert clientseitig via SideStore.
