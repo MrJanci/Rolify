@@ -12,6 +12,8 @@ on:
 jobs:
   build:
     runs-on: macos-14
+    permissions:
+      contents: write    # fuer softprops/action-gh-release (Release-Asset upload)
     steps:
       - uses: actions/checkout@v4
 
