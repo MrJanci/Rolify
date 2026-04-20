@@ -209,7 +209,7 @@ final class Player {
     // MARK: NowPlayingInfo + Artwork
 
     private func setupNowPlayingInfo(manifest: StreamManifest) async {
-        var info: [String: Any] = [
+        let info: [String: Any] = [
             MPMediaItemPropertyTitle: manifest.title,
             MPMediaItemPropertyArtist: manifest.artist,
             MPMediaItemPropertyAlbumTitle: manifest.album,
