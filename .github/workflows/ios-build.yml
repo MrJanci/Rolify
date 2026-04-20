@@ -1,0 +1,72 @@
+name: ios-build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+# Baut ein UNSIGNED .ipa auf macOS-Runner. Signing passiert clientseitig via SideStore.
+# Free-Tier-Limit: 200 min/month fuer private Repos. Public = unlimited.
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.0.app
+
+      - name: Generate Design-System from tokens
+        run: |
+          if [ -f scripts/generate-design-system.ts ]; then
+            npm install -g tsx
+            tsx scripts/generate-design-system.ts
+          else
+            echo "No design-system generator yet, skipping."
+          fi
+
+      - name: Resolve SwiftPM dependencies
+        working-directory: apps/ios
+        run: |
+          if [ -f Rolify.xcodeproj/project.pbxproj ]; then
+            xcodebuild -resolvePackageDependencies -project Rolify.xcodeproj -scheme Rolify
+          else
+            echo "Xcode-Projekt noch nicht erstellt — Woche 5."
+            exit 0
+          fi
+
+      - name: Archive (unsigned)
+        working-directory: apps/ios
+        run: |
+          xcodebuild archive \
+            -project Rolify.xcodeproj \
+            -scheme Rolify \
+            -configuration Release \
+            -archivePath $PWD/build/Rolify.xcarchive \
+            -sdk iphoneos \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Export unsigned .ipa
+        working-directory: apps/ios
+        run: |
+          mkdir -p build/ipa/Payload
+          cp -R build/Rolify.xcarchive/Products/Applications/Rolify.app build/ipa/Payload/
+          cd build/ipa
+          zip -qr Rolify-unsigned.ipa Payload
+          cd -
+          ls -la build/ipa/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Rolify-unsigned-ipa
+          path: apps/ios/build/ipa/Rolify-unsigned.ipa
+          retention-days: 30
+
+      - name: Attach to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: apps/ios/build/ipa/Rolify-unsigned.ipa

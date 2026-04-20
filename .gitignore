@@ -1,0 +1,73 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Env / Secrets
+.env
+.env.local
+.env.*.local
+infra/.env
+infra/certs/
+**/secrets/
+
+# Node
+node_modules/
+dist/
+build/
+.next/
+coverage/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+.pnpm-store/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# iOS / Xcode
+apps/ios/**/build/
+apps/ios/**/DerivedData/
+apps/ios/**/xcuserdata/
+apps/ios/**/*.xcworkspace/xcuserdata/
+apps/ios/**/*.xcodeproj/xcuserdata/
+apps/ios/**/*.xcodeproj/project.xcworkspace/xcuserdata/
+*.ipa
+*.dSYM.zip
+
+# Scraping output (ausser strukturierte Outputs)
+scraping/ui_scraper/output/screenshots/
+scraping/ui_scraper/output/traces/
+scraping/ui_scraper/output/videos/
+scraping/music_acquirer/tmp/
+
+# Docker volumes
+infra/data/
+infra/volumes/
+
+# Prisma
+apps/backend/prisma/*.db
+apps/backend/prisma/*.db-journal
+
+# MacOS VM / local artefacts
+*.vdi
+*.vmdk
