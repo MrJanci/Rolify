@@ -41,7 +41,17 @@ struct TrackListItem: Codable, Identifiable, Hashable {
 }
 
 struct BrowseHomeResponse: Codable {
-    let tracks: [TrackListItem]
+    let shelves: [HomeShelf]?
+    let tracks: [TrackListItem]   // legacy/fallback
+}
+
+struct HomeShelf: Codable, Identifiable, Hashable {
+    let id: String
+    let title: String
+    let kind: String
+    let tracks: [TrackListItem]?
+    let playlists: [PlaylistSummary]?
+    let albums: [AlbumListItem]?
 }
 
 struct ArtistListItem: Codable, Identifiable, Hashable {
