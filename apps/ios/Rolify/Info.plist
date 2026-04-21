@@ -55,5 +55,14 @@
     <array>
         <string>audio</string>
     </array>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>Rolify nutzt Bluetooth um Nearby-Jams mit Freunden im gleichen Raum aufzubauen (ohne Internet).</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Rolify braucht lokales Netzwerk fuer Nearby-Jams via WiFi-Direct.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_rolify-jam._tcp</string>
+        <string>_rolify-jam._udp</string>
+    </array>
 </dict>
 </plist>

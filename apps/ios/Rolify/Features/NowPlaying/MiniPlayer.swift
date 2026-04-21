@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MiniPlayer: View {
     @State private var player = Player.shared
+    @State private var dragOffset: CGFloat = 0
     let onTap: () -> Void
 
     var body: some View {
@@ -33,17 +34,6 @@ struct MiniPlayer: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-
-                    Button {
-                        player.stop()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(DS.textSecondary)
-                            .frame(width: 32, height: 32)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
                 }
                 .padding(10)
                 .background(
@@ -66,8 +56,37 @@ struct MiniPlayer: View {
                     .padding(.bottom, 2)
                 }
                 .padding(.horizontal, DS.m)
+                .offset(x: dragOffset)
+                .opacity(1.0 - Double(min(abs(dragOffset), 200)) / 250.0)
             }
             .buttonStyle(.plain)
+            .gesture(
+                DragGesture(minimumDistance: 10)
+                    .onChanged { value in
+                        // Nur horizontale swipes (ignore vertical)
+                        let h = value.translation.width
+                        let v = value.translation.height
+                        if abs(h) > abs(v) {
+                            dragOffset = h
+                        }
+                    }
+                    .onEnded { value in
+                        if abs(value.translation.width) > 120 {
+                            // Swipe weit genug → Player stoppen (Spotify-Style dismiss)
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                dragOffset = value.translation.width > 0 ? 400 : -400
+                            }
+                            Task { @MainActor in
+                                try? await Task.sleep(for: .milliseconds(200))
+                                player.stop()
+                                dragOffset = 0
+                            }
+                        } else {
+                            withAnimation(.spring(response: 0.3)) { dragOffset = 0 }
+                        }
+                    }
+            )
         }
     }
 }

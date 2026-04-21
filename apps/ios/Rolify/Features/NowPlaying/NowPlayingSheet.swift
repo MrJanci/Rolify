@@ -120,6 +120,39 @@ struct NowPlayingSheet: View {
                     .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
+
+            Menu {
+                if let t = player.currentTrack {
+                    Button {
+                        UIPasteboard.general.string = "rolify://track/\(t.trackId)"
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    } label: {
+                        Label("Link kopieren", systemImage: "link")
+                    }
+                    Button {
+                        showQueue = true
+                    } label: {
+                        Label("Warteschlange", systemImage: "list.bullet")
+                    }
+                    Button {
+                        showJam = true
+                    } label: {
+                        Label("Jam starten", systemImage: "wifi")
+                    }
+                    Divider()
+                    Button(role: .destructive) {
+                        player.stop()
+                    } label: {
+                        Label("Stoppen", systemImage: "stop.circle")
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(DS.textSecondary)
+                    .frame(width: 32, height: 32)
+                    .contentShape(Rectangle())
+            }
         }
         .padding(.horizontal, DS.xxl)
     }

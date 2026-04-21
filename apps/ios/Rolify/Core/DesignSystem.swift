@@ -6,9 +6,9 @@ import SwiftUI
 enum DS {
     // MARK: Colors
 
-    static let bg = Color(red: 0.043, green: 0.055, blue: 0.090)           // #0B0E17 - deep navy
-    static let bgElevated = Color(red: 0.086, green: 0.106, blue: 0.157)   // #161B28 - elevated card
-    static let bgRow = Color(red: 0.055, green: 0.071, blue: 0.110)        // #0E121C - row bg
+    static let bg = Color.black                                            // #000000 - Spotify pure black
+    static let bgElevated = Color(red: 0.12, green: 0.12, blue: 0.12)      // #1F1F1F - elevated card (Spotify-style)
+    static let bgRow = Color(red: 0.08, green: 0.08, blue: 0.08)           // #141414 - row bg
 
     static let accent = Color(red: 0.231, green: 0.510, blue: 0.965)       // #3B82F6 - Blue-500 (primary, from landing page)
     static let accentBright = Color(red: 0.376, green: 0.647, blue: 0.980) // #60A5FA - Blue-400 (hover/active)

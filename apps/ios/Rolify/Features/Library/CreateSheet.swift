@@ -35,7 +35,7 @@ struct CreateSheet: View {
                     icon: "person.2.fill",
                     title: "Kollaborative Playlist",
                     subtitle: "Mit Freunden zusammen bauen",
-                    color: Color(red: 0.30, green: 0.72, blue: 0.53)
+                    color: DS.accentBright
                 ) {
                     showCreateCollab = true
                 }
