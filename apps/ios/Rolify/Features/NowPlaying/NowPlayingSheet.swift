@@ -6,6 +6,7 @@ struct NowPlayingSheet: View {
     @State private var isDragging = false
     @State private var dragProgress: Double = 0
     @State private var showQueue = false
+    @State private var isLiked = false  // TODO: wire auf /me/likes wenn Backend steht
 
     var body: some View {
         ZStack {
@@ -22,25 +23,15 @@ struct NowPlayingSheet: View {
                         .frame(width: 320, height: 320)
                         .shadow(color: .black.opacity(0.5), radius: 24, y: 12)
 
-                    Spacer().frame(height: 40)
+                    Spacer().frame(height: 32)
 
-                    VStack(spacing: DS.xs) {
-                        Text(track.title)
-                            .font(.system(size: 24, weight: .black))
-                            .foregroundStyle(DS.textPrimary)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(2)
-                        Text(track.artist)
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(DS.textSecondary)
-                    }
-                    .padding(.horizontal, DS.xxl)
+                    titleRow(track: track)
 
-                    Spacer().frame(height: DS.xxxl)
+                    Spacer().frame(height: 24)
 
                     progressBar
 
-                    Spacer().frame(height: DS.xl)
+                    Spacer().frame(height: DS.l)
 
                     controlRow
 
@@ -57,6 +48,36 @@ struct NowPlayingSheet: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+    }
+
+    // MARK: - Title + Heart + Dots
+
+    private func titleRow(track: StreamManifest) -> some View {
+        HStack(alignment: .center, spacing: DS.m) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(track.title)
+                    .font(.system(size: 22, weight: .black))
+                    .foregroundStyle(DS.textPrimary)
+                    .lineLimit(2)
+                Text(track.artist)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(DS.textSecondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: DS.s)
+
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                isLiked.toggle()
+            } label: {
+                Image(systemName: isLiked ? "heart.fill" : "heart")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(isLiked ? DS.accent : DS.textSecondary)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, DS.xxl)
     }
 
     private var progressBar: some View {
@@ -169,22 +190,46 @@ struct NowPlayingSheet: View {
         }
     }
 
+    // MARK: - Bottom actions (AirPlay + Share + Queue)
+
     private var bottomActions: some View {
         HStack {
-            Spacer()
             Button {
-                showQueue = true
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
             } label: {
-                HStack(spacing: DS.s) {
-                    Image(systemName: "list.bullet")
-                        .font(.system(size: 16, weight: .semibold))
-                    Text("Warteschlange")
-                        .font(.system(size: 14, weight: .medium))
-                }
-                .foregroundStyle(DS.textSecondary)
+                Image(systemName: "hifispeaker.and.appletv")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(DS.textSecondary)
             }
             .buttonStyle(.plain)
+
             Spacer()
+
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                if let t = player.currentTrack {
+                    UIPasteboard.general.string = "rolify://track/\(t.trackId)"
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(DS.textSecondary)
+            }
+            .buttonStyle(.plain)
+
+            Spacer().frame(width: DS.xxl)
+
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                showQueue = true
+            } label: {
+                Image(systemName: "list.bullet")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(DS.textSecondary)
+            }
+            .buttonStyle(.plain)
         }
+        .padding(.horizontal, DS.xxl)
     }
 }

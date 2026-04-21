@@ -9,10 +9,19 @@ struct SearchView: View {
     @State private var showAddToPlaylist = false
     @State private var pendingTrackId = ""
     @State private var pendingTrackTitle = ""
+    @State private var showProfileSheet = false
     @State private var api = API.shared
     @State private var player = Player.shared
 
-    private let browseCategories: [(String, Color)] = [
+    /// Spotify-Style Browse-Kategorien. Farben direkt aus Spotify iOS Listing.
+    private let topCategories: [(name: String, color: Color, icon: String)] = [
+        ("Musik", Color(red: 0.92, green: 0.29, blue: 0.51), "music.note"),                 // pink
+        ("Podcasts", Color(red: 0.12, green: 0.60, blue: 0.60), "mic.fill"),                // teal
+        ("Hoerbuecher", Color(red: 0.13, green: 0.22, blue: 0.55), "book.fill"),            // navy
+        ("Live Events", Color(red: 0.49, green: 0.22, blue: 0.75), "mappin.and.ellipse"),   // purple
+    ]
+
+    private let genreCategories: [(name: String, color: Color)] = [
         ("Hip-Hop", Color(red: 0.86, green: 0.27, blue: 0.43)),
         ("Pop", Color(red: 0.95, green: 0.52, blue: 0.21)),
         ("Rock", Color(red: 0.60, green: 0.28, blue: 0.81)),
@@ -26,7 +35,6 @@ struct SearchView: View {
     var body: some View {
         ZStack {
             DS.bg.ignoresSafeArea()
-
             content
         }
         .navigationDestination(for: LibraryRoute.self) { route in
@@ -53,14 +61,22 @@ struct SearchView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Text("Suche")
-                    .font(DS.Font.headline)
-                    .foregroundStyle(DS.textPrimary)
+                HStack(spacing: DS.m) {
+                    AvatarButton { showProfileSheet = true }
+                    Text("Suche")
+                        .font(DS.Font.title)
+                        .foregroundStyle(DS.textPrimary)
+                }
             }
         }
         .sheet(isPresented: $showAddToPlaylist) {
             AddToPlaylistSheet(trackId: pendingTrackId, trackTitle: pendingTrackTitle)
                 .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showProfileSheet) {
+            ProfileSheet()
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
     }
@@ -84,35 +100,82 @@ struct SearchView: View {
 
     private var browseGrid: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: DS.l) {
-                Text("Durchsuche Kategorien")
-                    .font(DS.Font.title)
-                    .foregroundStyle(DS.textPrimary)
-                    .padding(.horizontal, DS.xl)
-                    .padding(.top, DS.l)
-
+            VStack(alignment: .leading, spacing: DS.xl) {
+                // Hero-Tiles (4 grosse: Music/Podcasts/Audiobooks/Live Events)
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: DS.m), GridItem(.flexible(), spacing: DS.m)], spacing: DS.m) {
-                    ForEach(browseCategories, id: \.0) { (name, color) in
-                        categoryCard(name: name, color: color)
+                    ForEach(topCategories, id: \.name) { cat in
+                        heroTile(name: cat.name, color: cat.color, icon: cat.icon)
                     }
                 }
-                .padding(.horizontal, DS.xl)
+                .padding(.horizontal, DS.l)
+                .padding(.top, DS.l)
 
-                Spacer().frame(height: 120)
+                // Genre-Section
+                VStack(alignment: .leading, spacing: DS.m) {
+                    Text("Durchsuche alle")
+                        .font(DS.Font.title)
+                        .foregroundStyle(DS.textPrimary)
+                        .padding(.horizontal, DS.l)
+
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: DS.m), GridItem(.flexible(), spacing: DS.m)], spacing: DS.m) {
+                        ForEach(genreCategories, id: \.name) { cat in
+                            genreCard(name: cat.name, color: cat.color)
+                        }
+                    }
+                    .padding(.horizontal, DS.l)
+                }
+
+                Spacer().frame(height: 140)
             }
         }
     }
 
-    private func categoryCard(name: String, color: Color) -> some View {
-        ZStack(alignment: .topLeading) {
-            color
-            Text(name)
-                .font(.system(size: 18, weight: .black))
-                .foregroundStyle(.white)
-                .padding(DS.m)
+    /// Grosser Hero-Tile (Music/Podcasts/etc) - Farbige Kachel mit Icon rechts unten rotiert.
+    private func heroTile(name: String, color: Color, icon: String) -> some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            query = name
+        } label: {
+            ZStack(alignment: .topLeading) {
+                color
+
+                // Icon rechts unten rotiert (Spotify-Style)
+                Image(systemName: icon)
+                    .font(.system(size: 56, weight: .black))
+                    .foregroundStyle(Color.white.opacity(0.95))
+                    .rotationEffect(.degrees(25))
+                    .offset(x: 40, y: 22)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .clipped()
+
+                Text(name)
+                    .font(.system(size: 20, weight: .black))
+                    .foregroundStyle(.white)
+                    .padding(DS.m)
+            }
+            .frame(height: 110)
+            .clipShape(RoundedRectangle(cornerRadius: DS.radiusM, style: .continuous))
         }
-        .frame(height: 100)
-        .clipShape(RoundedRectangle(cornerRadius: DS.radiusM, style: .continuous))
+        .buttonStyle(.plain)
+    }
+
+    /// Standard-Genre-Card (kleinere farbige Kachel)
+    private func genreCard(name: String, color: Color) -> some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+            query = name
+        } label: {
+            ZStack(alignment: .topLeading) {
+                color
+                Text(name)
+                    .font(.system(size: 17, weight: .black))
+                    .foregroundStyle(.white)
+                    .padding(DS.m)
+            }
+            .frame(height: 100)
+            .clipShape(RoundedRectangle(cornerRadius: DS.radiusM, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -125,7 +188,7 @@ struct SearchView: View {
                     tracksSection(r.tracks)
                     artistsSection(r.artists)
                     albumsSection(r.albums)
-                    Spacer().frame(height: 120)
+                    Spacer().frame(height: 140)
                 }
             }
         }

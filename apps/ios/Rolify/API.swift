@@ -254,10 +254,12 @@ final class API {
     }
 
     func search(q: String) async throws -> SearchResponse {
-        var components = URLComponents()
-        components.queryItems = [URLQueryItem(name: "q", value: q)]
-        let qs = components.percentEncodedQuery ?? ""
-        return try await request("/search?\(qs)", method: "GET")
+        // Query-String sauber ueber URLComponents bauen — vermeidet ?-Encoding-Bug
+        // von appendingPathComponent.
+        var comps = URLComponents()
+        comps.queryItems = [URLQueryItem(name: "q", value: q)]
+        let qs = comps.percentEncodedQuery ?? ""
+        return try await requestPath("/search?\(qs)", method: "GET")
     }
 
     func myPlaylists() async throws -> [PlaylistSummary] {
@@ -330,7 +332,11 @@ final class API {
 
     /// Fuer DELETE / PATCH-no-body Endpoints (204 No Content)
     private func requestVoid(_ path: String, method: String, body: (any Encodable)? = nil) async throws {
-        let url = baseURL.appendingPathComponent(path)
+        try await requestVoidPath(path, method: method, body: body, retried: false)
+    }
+
+    private func requestVoidPath(_ path: String, method: String, body: (any Encodable)?, retried: Bool) async throws {
+        let url = try buildURL(path: path)
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -343,9 +349,9 @@ final class API {
 
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw APIError.httpError(-1, "no response") }
-        if http.statusCode == 401 {
+        if http.statusCode == 401 && !retried {
             try await refresh()
-            try await requestVoid(path, method: method, body: body)
+            try await requestVoidPath(path, method: method, body: body, retried: true)
             return
         }
         guard (200..<300).contains(http.statusCode) else {
@@ -356,10 +362,21 @@ final class API {
 
     // MARK: Request-Core
 
+    /// Alias fuer interne request-calls die bereits "/path?q=..." form haben.
+    fileprivate func requestPath<T: Decodable>(_ path: String, method: String, body: (any Encodable)? = nil, auth: Bool = true) async throws -> T {
+        try await request(path, method: method, body: body, auth: auth)
+    }
+
     private func request<T: Decodable>(
         _ path: String, method: String, body: (any Encodable)? = nil, auth: Bool = true
     ) async throws -> T {
-        let url = baseURL.appendingPathComponent(path)
+        try await requestInner(path, method: method, body: body, auth: auth, retried: false)
+    }
+
+    private func requestInner<T: Decodable>(
+        _ path: String, method: String, body: (any Encodable)?, auth: Bool, retried: Bool
+    ) async throws -> T {
+        let url = try buildURL(path: path)
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -376,10 +393,11 @@ final class API {
         guard let http = resp as? HTTPURLResponse else {
             throw APIError.httpError(-1, "no response")
         }
-        if http.statusCode == 401 && auth {
-            // Transparent refresh attempt
+        if http.statusCode == 401 && auth && !retried {
+            // Einmalig transparent refresh versuchen. `retried` verhindert infinite loop
+            // falls der neue Access-Token auch sofort 401 gibt (z.B. widerrufen).
             try await refresh()
-            return try await request(path, method: method, body: body, auth: auth)
+            return try await requestInner(path, method: method, body: body, auth: auth, retried: true)
         }
         guard (200..<300).contains(http.statusCode) else {
             let bodyStr = String(data: data, encoding: .utf8) ?? ""
@@ -390,6 +408,18 @@ final class API {
         } catch {
             throw APIError.decodingError(String(describing: error))
         }
+    }
+
+    /// Baut URL aus baseURL + path. path kann "/foo" oder "/foo?a=b" sein. Wichtig: NICHT
+    /// `appendingPathComponent` verwenden, das encoded `?` zu `%3F` und killt Query-Strings.
+    private func buildURL(path: String) throws -> URL {
+        let base = baseURL.absoluteString
+        let trimmedBase = base.hasSuffix("/") ? String(base.dropLast()) : base
+        let prefixedPath = path.hasPrefix("/") ? path : "/" + path
+        guard let url = URL(string: trimmedBase + prefixedPath) else {
+            throw APIError.invalidURL
+        }
+        return url
     }
 }
 
