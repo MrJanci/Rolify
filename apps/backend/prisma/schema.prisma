@@ -176,6 +176,7 @@ model ScrapeJob {
 enum ScrapeStatus {
   QUEUED
   RUNNING
+  PAUSED
   DONE
   FAILED
 }
