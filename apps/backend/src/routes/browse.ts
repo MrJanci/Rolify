@@ -132,10 +132,12 @@ export default async function browseRoutes(app: FastifyInstance) {
       take: 60,
     });
 
-    // Shuffle + nimm 30
+    // Shuffle + nimm 30 (Fisher-Yates mit explicit-swap - noUncheckedIndexedAccess-safe)
     for (let i = candidates.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
-      [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+      const tmp = candidates[i]!;
+      candidates[i] = candidates[j]!;
+      candidates[j] = tmp;
     }
     const chosen = candidates.slice(0, 30);
     if (chosen.length === 0) {
