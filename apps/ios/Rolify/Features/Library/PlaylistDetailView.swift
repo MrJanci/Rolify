@@ -114,7 +114,7 @@ struct PlaylistDetailView: View {
                         .buttonStyle(.plain)
                     }
 
-                    // Action-Row: Play + Collab-Verwalten (wenn Owner einer Collab-Playlist)
+                    // Action-Row: Collab (links) + Shuffle + Play (rechts, Spotify-Layout)
                     HStack(spacing: DS.m) {
                         if d.isOwned ?? false, (d.isCollaborative ?? false) {
                             Button {
@@ -130,21 +130,39 @@ struct PlaylistDetailView: View {
                             .buttonStyle(.plain)
                         }
 
+                        Spacer()
+
+                        Button {
+                            guard !d.tracks.isEmpty else { return }
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            let q = d.tracks.map { QueueTrack($0) }
+                            PlaybackQueue.shared.shuffle = true
+                            guard let first = q.randomElement() else { return }
+                            Task { await player.play(queue: q, startingAt: first.id) }
+                        } label: {
+                            Image(systemName: "shuffle")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundStyle(DS.textSecondary)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(d.tracks.isEmpty)
+
                         Button {
                             guard let first = d.tracks.first else { return }
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             let q = d.tracks.map { QueueTrack($0) }
+                            PlaybackQueue.shared.shuffle = false
                             Task { await player.play(queue: q, startingAt: first.id) }
                         } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "play.fill").font(.system(size: 16, weight: .black))
-                                Text("Abspielen").font(.system(size: 15, weight: .bold))
-                            }
-                            .foregroundStyle(.black)
-                            .padding(.horizontal, 32)
-                            .frame(height: 48)
-                            .background(DS.accent)
-                            .clipShape(Capsule())
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 24, weight: .black))
+                                .foregroundStyle(.white)
+                                .frame(width: 56, height: 56)
+                                .background(DS.accent)
+                                .clipShape(Circle())
+                                .shadow(color: DS.accent.opacity(0.45), radius: 12, y: 6)
                         }
                         .buttonStyle(.plain)
                         .disabled(d.tracks.isEmpty)
@@ -206,6 +224,7 @@ struct PlaylistDetailView: View {
             }
             .padding(.horizontal, DS.xl)
             .padding(.vertical, 6)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
