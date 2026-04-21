@@ -28,75 +28,153 @@ struct JamSheet: View {
         }
     }
 
+    @State private var showBtBrowser = false
+
     private var entryScreen: some View {
-        VStack(spacing: DS.xl) {
-            header(title: "Jam")
+        ScrollView {
+            VStack(spacing: DS.xl) {
+                header(title: "Jam")
 
-            Spacer().frame(height: DS.s)
+                Spacer().frame(height: DS.s)
 
-            VStack(spacing: DS.m) {
-                Image(systemName: "wifi")
-                    .font(.system(size: 44, weight: .black))
-                    .foregroundStyle(DS.accent)
-                Text("Hoere live zusammen")
-                    .font(.system(size: 22, weight: .black))
-                    .foregroundStyle(DS.textPrimary)
-                Text("Starte eine Session oder joine via Code")
-                    .font(DS.Font.caption)
-                    .foregroundStyle(DS.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, DS.xxl)
-            }
-            .padding(.vertical, DS.l)
-
-            Button {
-                Task { await startNew() }
-            } label: {
-                HStack(spacing: DS.s) {
-                    Image(systemName: "plus.circle.fill")
-                    Text("Jam starten")
-                }
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(.black)
-                .frame(maxWidth: .infinity).frame(height: 52)
-                .background(DS.accent)
-                .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, DS.xl)
-            .disabled(isLoading)
-
-            VStack(alignment: .leading, spacing: DS.s) {
-                Text("Oder Code eingeben")
-                    .font(DS.Font.footnote)
-                    .foregroundStyle(DS.textSecondary)
-                HStack {
-                    TextField("XXXXXX", text: $joinCode)
-                        .textInputAutocapitalization(.characters)
-                        .autocorrectionDisabled()
-                        .font(.system(size: 18, weight: .bold, design: .monospaced))
+                VStack(spacing: DS.m) {
+                    Image(systemName: "wifi")
+                        .font(.system(size: 44, weight: .black))
+                        .foregroundStyle(DS.accent)
+                    Text("Hoere live zusammen")
+                        .font(.system(size: 22, weight: .black))
                         .foregroundStyle(DS.textPrimary)
-                        .padding(.horizontal, DS.l)
-                        .frame(height: 48)
-                        .background(DS.bgElevated)
-                        .clipShape(RoundedRectangle(cornerRadius: DS.radiusM, style: .continuous))
-                    Button("Joinen") {
-                        Task { await joinExisting() }
-                    }
-                    .foregroundStyle(joinCode.count >= 4 ? DS.accent : DS.textTertiary)
-                    .disabled(joinCode.count < 4 || isLoading)
+                    Text("Online via Code oder lokal via Bluetooth")
+                        .font(DS.Font.caption)
+                        .foregroundStyle(DS.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, DS.xxl)
                 }
-            }
-            .padding(.horizontal, DS.xl)
+                .padding(.vertical, DS.l)
 
-            if let error {
-                Text(error).font(DS.Font.footnote).foregroundStyle(.red).padding(.horizontal, DS.xl)
-            }
-            if isLoading { ProgressView().tint(DS.accent) }
+                // === ONLINE-JAM ===
+                VStack(spacing: DS.s) {
+                    Text("Online (Internet)")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(DS.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, DS.xl)
 
+                    Button {
+                        Task { await startNew() }
+                    } label: {
+                        actionRowLabel(icon: "plus.circle.fill", text: "Online-Jam starten", primary: true)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, DS.xl)
+                    .disabled(isLoading)
+
+                    VStack(alignment: .leading, spacing: DS.xs) {
+                        Text("Oder Code eingeben")
+                            .font(DS.Font.footnote)
+                            .foregroundStyle(DS.textSecondary)
+                        HStack {
+                            TextField("XXXXXX", text: $joinCode)
+                                .textInputAutocapitalization(.characters)
+                                .autocorrectionDisabled()
+                                .font(.system(size: 16, weight: .bold, design: .monospaced))
+                                .foregroundStyle(DS.textPrimary)
+                                .padding(.horizontal, DS.l)
+                                .frame(height: 44)
+                                .background(DS.bgElevated)
+                                .clipShape(RoundedRectangle(cornerRadius: DS.radiusM, style: .continuous))
+                            Button("Joinen") {
+                                Task { await joinExisting() }
+                            }
+                            .foregroundStyle(joinCode.count >= 4 ? DS.accent : DS.textTertiary)
+                            .disabled(joinCode.count < 4 || isLoading)
+                        }
+                    }
+                    .padding(.horizontal, DS.xl)
+                    .padding(.top, DS.s)
+                }
+
+                Divider().background(DS.divider).padding(.horizontal, DS.xl)
+
+                // === BLUETOOTH-JAM ===
+                VStack(spacing: DS.s) {
+                    Text("Nearby (Bluetooth / WiFi-Direct)")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(DS.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, DS.xl)
+
+                    Button {
+                        Task { await startBluetoothHost() }
+                    } label: {
+                        actionRowLabel(icon: "dot.radiowaves.left.and.right", text: "Nearby-Jam starten (Host)", primary: false)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, DS.xl)
+                    .disabled(isLoading)
+
+                    Button {
+                        Task { await startBluetoothGuest() }
+                        showBtBrowser = true
+                    } label: {
+                        actionRowLabel(icon: "magnifyingglass", text: "Nearby beitreten", primary: false)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, DS.xl)
+                    .disabled(isLoading)
+
+                    Text("Kein Internet noetig — 2 iPhones im gleichen Raum")
+                        .font(DS.Font.footnote)
+                        .foregroundStyle(DS.textTertiary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, DS.xxl)
+                }
+
+                if let error {
+                    Text(error).font(DS.Font.footnote).foregroundStyle(.red).padding(.horizontal, DS.xl)
+                }
+                if isLoading { ProgressView().tint(DS.accent) }
+
+                Spacer().frame(height: 40)
+            }
+            .padding(.top, DS.l)
+        }
+        .sheet(isPresented: $showBtBrowser) {
+            BluetoothBrowserSheet()
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+        }
+    }
+
+    @ViewBuilder
+    private func actionRowLabel(icon: String, text: String, primary: Bool) -> some View {
+        HStack(spacing: DS.s) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .bold))
+            Text(text)
+                .font(.system(size: 15, weight: .bold))
             Spacer()
         }
-        .padding(.top, DS.l)
+        .foregroundStyle(primary ? .black : DS.textPrimary)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, DS.l)
+        .frame(height: 52)
+        .background(primary ? DS.accent : DS.bgElevated)
+        .clipShape(Capsule())
+    }
+
+    private func startBluetoothHost() async {
+        isLoading = true; error = nil
+        defer { isLoading = false }
+        let me = (try? await api.me())?.displayName ?? "Host"
+        await jam.startBluetoothHost(displayName: me)
+    }
+
+    private func startBluetoothGuest() async {
+        isLoading = true; error = nil
+        defer { isLoading = false }
+        let me = (try? await api.me())?.displayName ?? "Guest"
+        _ = await jam.startBluetoothGuest(displayName: me)
     }
 
     private func activeSession(code: String) -> some View {
@@ -268,16 +346,26 @@ struct JamSheet: View {
 final class JamOrchestrator {
     static let shared = JamOrchestrator()
 
+    enum Mode { case wireguard, bluetooth }
+
     let client = JamClient()
     private(set) var activeCode: String?
+    private(set) var mode: Mode = .wireguard
+    private(set) var localTransport: JamLocalTransport?
+    private(set) var isBluetoothHost: Bool = false
+
     var isConnected: Bool {
-        if case .connected = client.state { return true }
-        return false
+        switch mode {
+        case .wireguard:
+            if case .connected = client.state { return true }
+            return false
+        case .bluetooth:
+            return localTransport?.isConnected ?? false
+        }
     }
 
     init() {
-        // Hook: wenn Host einen Track-Change macht im Player, broadcast an Jam.
-        // Fuer einfachheit: wird im JamSheet-Flow direkt gemacht.
+        // WG-Mode Hooks
         client.onTrackChange = { [weak self] trackId, _ in
             guard let self, !self.client.isHost else { return }
             Task { @MainActor in await Player.shared.play(trackId: trackId) }
@@ -297,13 +385,91 @@ final class JamOrchestrator {
         }
     }
 
+    // MARK: WireGuard / Internet
+
     func connect(code: String, asHost: Bool, myUserId: String) async {
+        mode = .wireguard
         activeCode = code
         await client.connect(code: code, asHost: asHost, myUserId: myUserId)
     }
 
+    // MARK: Bluetooth / MultipeerConnectivity
+
+    func startBluetoothHost(displayName: String) async {
+        mode = .bluetooth
+        isBluetoothHost = true
+        activeCode = "BT: \(displayName)"
+        let transport = JamLocalTransport(displayName: displayName, role: .host)
+        wireBtHandlers(transport)
+        await transport.start()
+        self.localTransport = transport
+    }
+
+    func startBluetoothGuest(displayName: String) async -> JamLocalTransport {
+        mode = .bluetooth
+        isBluetoothHost = false
+        let transport = JamLocalTransport(displayName: displayName, role: .guest)
+        wireBtHandlers(transport)
+        await transport.start()
+        self.localTransport = transport
+        return transport
+    }
+
+    private func wireBtHandlers(_ transport: JamLocalTransport) {
+        transport.onMessage = { [weak self] payload in
+            guard let self, !self.isBluetoothHost else { return }
+            let type = payload["type"] as? String ?? ""
+            switch type {
+            case "track_change":
+                if let tid = payload["trackId"] as? String {
+                    Task { @MainActor in await Player.shared.play(trackId: tid) }
+                }
+            case "control":
+                let action = payload["action"] as? String ?? "pause"
+                Task { @MainActor in
+                    if action == "play" && !Player.shared.isPlaying { Player.shared.togglePlayPause() }
+                    else if action == "pause" && Player.shared.isPlaying { Player.shared.togglePlayPause() }
+                }
+            case "seek":
+                if let pos = payload["positionMs"] as? Int {
+                    Task { @MainActor in Player.shared.seek(seconds: Double(pos) / 1000.0) }
+                }
+            default: break
+            }
+        }
+        transport.onStateChange = { [weak self] connected in
+            guard let self else { return }
+            if !connected && self.mode == .bluetooth {
+                self.activeCode = nil
+            }
+        }
+    }
+
+    /// Convenience-Send fuer BT-Host (nutzt das gleiche Protocol wie WS).
+    func btSendTrackChange(trackId: String, positionMs: Int = 0) async {
+        guard mode == .bluetooth, isBluetoothHost, let t = localTransport else { return }
+        await t.send(["type": "track_change", "trackId": trackId, "positionMs": positionMs])
+    }
+
+    func btSendControl(playing: Bool, positionMs: Int) async {
+        guard mode == .bluetooth, isBluetoothHost, let t = localTransport else { return }
+        await t.send(["type": "control", "action": playing ? "play" : "pause", "positionMs": positionMs])
+    }
+
+    func btSendSeek(positionMs: Int) async {
+        guard mode == .bluetooth, isBluetoothHost, let t = localTransport else { return }
+        await t.send(["type": "seek", "positionMs": positionMs])
+    }
+
+    // MARK: Disconnect
+
     func disconnect() {
-        client.disconnect()
+        switch mode {
+        case .wireguard: client.disconnect()
+        case .bluetooth:
+            localTransport?.stop()
+            localTransport = nil
+        }
         activeCode = nil
     }
 }

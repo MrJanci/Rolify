@@ -115,10 +115,17 @@ final class Player {
             isPlaying = true
             updatePlaybackRateInfo(rate: 1.0)
 
-            // Jam-Broadcast: wenn wir Host einer Jam-Session sind, track_change broadcasten
+            // Jam-Broadcast: Host-einer-Session broadcastet track_change
+            // Unterstuetzt beide Transports (WG + BT)
             let jam = JamOrchestrator.shared
-            if jam.isConnected && jam.client.isHost {
-                await jam.client.sendTrackChange(trackId: trackId, positionMs: 0)
+            if jam.isConnected {
+                switch jam.mode {
+                case .wireguard where jam.client.isHost:
+                    await jam.client.sendTrackChange(trackId: trackId, positionMs: 0)
+                case .bluetooth where jam.isBluetoothHost:
+                    await jam.btSendTrackChange(trackId: trackId, positionMs: 0)
+                default: break
+                }
             }
         } catch {
             errorMessage = "Playback-Fehler: \(error.localizedDescription)"
@@ -144,11 +151,17 @@ final class Player {
 
     private func broadcastJamControl(playing: Bool) {
         let jam = JamOrchestrator.shared
-        guard jam.isConnected && jam.client.isHost else { return }
+        guard jam.isConnected else { return }
         let posMs = Int(progressSeconds * 1000)
         Task { @MainActor in
-            if playing { await jam.client.sendPlay(positionMs: posMs) }
-            else { await jam.client.sendPause(positionMs: posMs) }
+            switch jam.mode {
+            case .wireguard where jam.client.isHost:
+                if playing { await jam.client.sendPlay(positionMs: posMs) }
+                else { await jam.client.sendPause(positionMs: posMs) }
+            case .bluetooth where jam.isBluetoothHost:
+                await jam.btSendControl(playing: playing, positionMs: posMs)
+            default: break
+            }
         }
     }
 
@@ -161,10 +174,17 @@ final class Player {
                 self.progressSeconds = seconds
                 self.updateElapsedTimeInfo()
 
-                // Jam-Broadcast
+                // Jam-Broadcast (WG + BT)
                 let jam = JamOrchestrator.shared
-                if jam.isConnected && jam.client.isHost {
-                    await jam.client.sendSeek(positionMs: Int(seconds * 1000))
+                if jam.isConnected {
+                    let posMs = Int(seconds * 1000)
+                    switch jam.mode {
+                    case .wireguard where jam.client.isHost:
+                        await jam.client.sendSeek(positionMs: posMs)
+                    case .bluetooth where jam.isBluetoothHost:
+                        await jam.btSendSeek(positionMs: posMs)
+                    default: break
+                    }
                 }
             }
         }

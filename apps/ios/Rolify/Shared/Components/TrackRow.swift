@@ -11,7 +11,7 @@ struct TrackRow: View {
             UIImpactFeedbackGenerator(style: .soft).impactOccurred()
             onTap()
         }) {
-            HStack(spacing: 14) {
+            HStack(spacing: DS.m) {
                 CoverImage(url: track.coverUrl, cornerRadius: DS.radiusS)
                     .frame(width: 56, height: 56)
                     .overlay(alignment: .center) {

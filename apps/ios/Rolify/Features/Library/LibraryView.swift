@@ -31,15 +31,16 @@ struct LibraryView: View {
     @State private var allTracks: [TrackListItem] = []
     @State private var isLoading = true
     @State private var error: String?
-    @State private var showCreateSheet = false
     @State private var showProfileSheet = false
     @State private var showAddToPlaylist = false
     @State private var pendingTrackId = ""
     @State private var pendingTrackTitle = ""
     @State private var filter: LibraryFilter = .playlists
     @State private var sort: LibrarySort = .recent
+    @State private var useGridView: Bool = false
     @State private var api = API.shared
     @State private var player = Player.shared
+    @State private var router = CreateRouter.shared
 
     var body: some View {
         ZStack {
@@ -68,24 +69,13 @@ struct LibraryView: View {
                         .foregroundStyle(DS.textPrimary)
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    showCreateSheet = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(DS.textPrimary)
-                }
-            }
+            // Plus-Button entfernt — ist jetzt der 4. Tab unten rechts in AppRoot
         }
-        .sheet(isPresented: $showCreateSheet) {
-            CreateSheet(
-                onPlaylistCreated: { created in playlists.insert(created, at: 0) },
-                onMixedCreated: { created in playlists.insert(created, at: 0) }
-            )
-            .presentationDetents([.height(460)])
-            .presentationDragIndicator(.visible)
+        .onChange(of: router.showCreateSheet) { oldValue, newValue in
+            // Wenn CreateSheet geschlossen wird, reload die Library (evtl. neue Playlist)
+            if oldValue && !newValue {
+                Task { await load() }
+            }
         }
         .sheet(isPresented: $showProfileSheet) {
             ProfileSheet()
@@ -168,9 +158,19 @@ struct LibraryView: View {
                 .foregroundStyle(DS.textPrimary)
             }
             Spacer()
-            Image(systemName: "list.bullet")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(DS.textSecondary)
+            // Grid/List-Toggle (Spotify-Style)
+            Button {
+                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    useGridView.toggle()
+                }
+            } label: {
+                Image(systemName: useGridView ? "square.grid.2x2" : "list.bullet")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(DS.textSecondary)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, DS.l)
         .padding(.vertical, DS.s)
@@ -231,26 +231,95 @@ struct LibraryView: View {
         )
     }
 
+    @ViewBuilder
     private var playlistList: some View {
+        if useGridView {
+            playlistGrid
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    // Liked-Songs Pseudo-Playlist (ganz oben wie Spotify)
+                    NavigationLink(value: PlaylistRoute.likedSongs) {
+                        likedSongsRow
+                    }
+                    .buttonStyle(.plain)
+                    Divider().background(DS.divider).padding(.leading, 88)
+
+                    ForEach(sortedPlaylists) { p in
+                        NavigationLink(value: PlaylistRoute.detail(p.id, p.name)) {
+                            playlistRow(p)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Spacer().frame(height: 140)
+                }
+            }
+            .refreshable { await load() }
+        }
+    }
+
+    private var playlistGrid: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                // Liked-Songs Pseudo-Playlist (ganz oben wie Spotify)
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: DS.m), GridItem(.flexible(), spacing: DS.m)], spacing: DS.m) {
+                // Liked-Songs als erstes Grid-Element
                 NavigationLink(value: PlaylistRoute.likedSongs) {
-                    likedSongsRow
+                    likedSongsGridTile
                 }
                 .buttonStyle(.plain)
-                Divider().background(DS.divider).padding(.leading, 88)
 
                 ForEach(sortedPlaylists) { p in
                     NavigationLink(value: PlaylistRoute.detail(p.id, p.name)) {
-                        playlistRow(p)
+                        playlistGridTile(p)
                     }
                     .buttonStyle(.plain)
                 }
-                Spacer().frame(height: 140)
             }
+            .padding(.horizontal, DS.l)
+            .padding(.top, DS.s)
+            Spacer().frame(height: 140)
         }
         .refreshable { await load() }
+    }
+
+    private var likedSongsGridTile: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ZStack {
+                LinearGradient(
+                    colors: [Color(red: 0.55, green: 0.20, blue: 0.95), DS.accentDeep],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                )
+                Image(systemName: "heart.fill")
+                    .font(.system(size: 44, weight: .black))
+                    .foregroundStyle(.white)
+            }
+            .aspectRatio(1, contentMode: .fill)
+            .clipShape(RoundedRectangle(cornerRadius: DS.radiusS))
+            Text("Gelikte Songs")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(DS.textPrimary)
+                .lineLimit(1)
+            Text("\(likedCount) Tracks")
+                .font(.system(size: 11))
+                .foregroundStyle(DS.textSecondary)
+        }
+    }
+
+    private func playlistGridTile(_ p: PlaylistSummary) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            CoverImage(
+                url: p.coverUrl.isEmpty ? nil : p.coverUrl,
+                cornerRadius: DS.radiusS,
+                placeholder: (p.isMixed ?? false) ? "sparkles" : "music.note.list"
+            )
+            .aspectRatio(1, contentMode: .fill)
+            Text(p.name)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(DS.textPrimary)
+                .lineLimit(1)
+            Text("\(p.trackCount) Tracks")
+                .font(.system(size: 11))
+                .foregroundStyle(DS.textSecondary)
+        }
     }
 
     private var likedSongsRow: some View {
@@ -261,10 +330,10 @@ struct LibraryView: View {
                     startPoint: .topLeading, endPoint: .bottomTrailing
                 )
                 Image(systemName: "heart.fill")
-                    .font(.system(size: 20, weight: .black))
+                    .font(.system(size: 28, weight: .black))
                     .foregroundStyle(.white)
             }
-            .frame(width: 56, height: 56)
+            .frame(width: 72, height: 72)
             .clipShape(RoundedRectangle(cornerRadius: DS.radiusS))
 
             VStack(alignment: .leading, spacing: 2) {

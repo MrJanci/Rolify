@@ -1,14 +1,25 @@
 import SwiftUI
 
 enum Tab: Hashable {
-    case home, search, library, profile
+    case home, search, library, create
+}
+
+/// Global state fuer Create-Sheet-Steuerung — damit Plus-Tab + Plus-Button
+/// (falls irgendwo noch) beide dasselbe Sheet oeffnen.
+@Observable
+@MainActor
+final class CreateRouter {
+    static let shared = CreateRouter()
+    var showCreateSheet = false
 }
 
 struct AppRoot: View {
     @State private var api = API.shared
     @State private var player = Player.shared
     @State private var jam = JamOrchestrator.shared
+    @State private var router = CreateRouter.shared
     @State private var selectedTab: Tab = .library
+    @State private var previousTab: Tab = .library
     @State private var showNowPlaying = false
     @State private var showJam = false
 
@@ -38,14 +49,24 @@ struct AppRoot: View {
                     .tabItem { Label("Bibliothek", systemImage: "books.vertical.fill") }
                     .tag(Tab.library)
 
-                NavigationStack { ProfileView() }
-                    .tabItem { Label("Profil", systemImage: "person.circle.fill") }
-                    .tag(Tab.profile)
+                // "Create" Tab: Tapping opens CreateSheet statt Tab-Switch.
+                // Wir nutzen .onChange um sofort zurueckzuspringen + Sheet zu triggern.
+                Color.clear
+                    .tabItem { Label("Create", systemImage: "plus.circle.fill") }
+                    .tag(Tab.create)
             }
             .tint(DS.accent)
+            .onChange(of: selectedTab) { old, new in
+                if new == .create {
+                    // Direkt zurueckspringen + Sheet auf
+                    selectedTab = old == .create ? .library : old
+                    router.showCreateSheet = true
+                } else {
+                    previousTab = new
+                }
+            }
 
             VStack(spacing: 6) {
-                // Jam-Banner wenn aktiv (oberhalb MiniPlayer)
                 if jam.isConnected, let code = jam.activeCode {
                     jamBanner(code: code)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -68,6 +89,14 @@ struct AppRoot: View {
             JamSheet()
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $router.showCreateSheet) {
+            CreateSheet(
+                onPlaylistCreated: { _ in },
+                onMixedCreated: { _ in }
+            )
+            .presentationDetents([.height(460)])
+            .presentationDragIndicator(.visible)
         }
     }
 
