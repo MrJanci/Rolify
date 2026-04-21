@@ -19,7 +19,10 @@ struct HomeView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(for: PlaylistRoute.self) { r in
-            switch r { case let .detail(id, name): PlaylistDetailView(playlistId: id, initialName: name) }
+            switch r {
+            case let .detail(id, name): PlaylistDetailView(playlistId: id, initialName: name)
+            case .likedSongs: LikedSongsView()
+            }
         }
         .navigationDestination(for: LibraryRoute.self) { r in
             switch r {

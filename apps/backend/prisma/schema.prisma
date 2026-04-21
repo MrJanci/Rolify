@@ -29,9 +29,13 @@ model User {
 
   playlists          Playlist[]
   library            LibraryTrack[]
+  savedAlbums        SavedAlbum[]
+  savedArtists       SavedArtist[]
   offlineLicenses    OfflineLicense[]
   sessions           Session[]
-  jamSessions        JamSession[]   @relation("JamHost")
+  jamSessions        JamSession[]           @relation("JamHost")
+  jamParticipations  JamParticipant[]
+  playlistCollabs    PlaylistCollaborator[]
 }
 
 model Artist {
@@ -40,6 +44,7 @@ model Artist {
   imageUrl String?
   albums   Album[]
   tracks   Track[]
+  savedBy  SavedArtist[]
 }
 
 model Album {
@@ -50,6 +55,7 @@ model Album {
   artistId    String
   artist      Artist   @relation(fields: [artistId], references: [id])
   tracks      Track[]
+  savedBy     SavedAlbum[]
 
   @@index([artistId])
 }
@@ -72,6 +78,7 @@ model Track {
   playlistTracks   PlaylistTrack[]
   libraryEntries   LibraryTrack[]
   offlineLicenses  OfflineLicense[]
+  jamSessions      JamSession[]     @relation("JamCurrentTrack")
 
   @@index([title])
   @@index([artistId])
@@ -79,18 +86,41 @@ model Track {
 }
 
 model Playlist {
-  id          String          @id @default(cuid())
-  userId      String
-  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name        String
-  coverUrl    String?
-  description String?
-  isPublic    Boolean         @default(false)
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  tracks      PlaylistTrack[]
+  id            String                 @id @default(cuid())
+  userId        String
+  user          User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  coverUrl      String?
+  description   String?
+  isPublic      Boolean                @default(false)
+  // Collaborative-Playlist: wenn true, duerfen alle in `collaborators` writen
+  isCollaborative Boolean              @default(false)
+  // Mixed-Playlist: regeneriert sich taeglich (KI/Algo)
+  isMixed       Boolean                @default(false)
+  mixSeedId     String?                // Seed-Artist/Track fuer Mix-Algo
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  tracks        PlaylistTrack[]
+  collaborators PlaylistCollaborator[]
 
   @@index([userId])
+}
+
+model PlaylistCollaborator {
+  playlistId String
+  userId     String
+  role       CollabRole @default(EDITOR)
+  addedAt    DateTime   @default(now())
+  playlist   Playlist   @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([playlistId, userId])
+  @@index([userId])
+}
+
+enum CollabRole {
+  EDITOR
+  VIEWER
 }
 
 model PlaylistTrack {
@@ -113,6 +143,28 @@ model LibraryTrack {
   track   Track    @relation(fields: [trackId], references: [id])
 
   @@id([userId, trackId])
+  @@index([userId, savedAt])
+}
+
+model SavedAlbum {
+  userId  String
+  albumId String
+  savedAt DateTime @default(now())
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  album   Album    @relation(fields: [albumId], references: [id])
+
+  @@id([userId, albumId])
+  @@index([userId, savedAt])
+}
+
+model SavedArtist {
+  userId   String
+  artistId String
+  savedAt  DateTime @default(now())
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  artist   Artist   @relation(fields: [artistId], references: [id])
+
+  @@id([userId, artistId])
   @@index([userId, savedAt])
 }
 
@@ -146,14 +198,35 @@ model Session {
 }
 
 model JamSession {
-  id         String    @id @default(cuid())
-  hostUserId String
-  host       User      @relation("JamHost", fields: [hostUserId], references: [id])
-  code       String    @unique
-  createdAt  DateTime  @default(now())
-  endedAt    DateTime?
+  id                String    @id @default(cuid())
+  hostUserId        String
+  host              User      @relation("JamHost", fields: [hostUserId], references: [id])
+  code              String    @unique
+  name              String?
+  createdAt         DateTime  @default(now())
+  endedAt           DateTime?
+  // Aktuelle Playback-Position fuer late-joiners
+  currentTrackId    String?
+  currentTrack      Track?    @relation("JamCurrentTrack", fields: [currentTrackId], references: [id])
+  isPaused          Boolean   @default(false)
+  positionMs        Int       @default(0)
+  positionUpdatedAt DateTime  @default(now())
+
+  participants      JamParticipant[]
 
   @@index([code])
+}
+
+model JamParticipant {
+  sessionId String
+  userId    String
+  joinedAt  DateTime @default(now())
+  leftAt    DateTime?
+  session   JamSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([sessionId, userId])
+  @@index([sessionId])
 }
 
 model ScrapeJob {

@@ -114,6 +114,12 @@ final class Player {
             player.play()
             isPlaying = true
             updatePlaybackRateInfo(rate: 1.0)
+
+            // Jam-Broadcast: wenn wir Host einer Jam-Session sind, track_change broadcasten
+            let jam = JamOrchestrator.shared
+            if jam.isConnected && jam.client.isHost {
+                await jam.client.sendTrackChange(trackId: trackId, positionMs: 0)
+            }
         } catch {
             errorMessage = "Playback-Fehler: \(error.localizedDescription)"
             print("Player error: \(error)")
@@ -127,10 +133,22 @@ final class Player {
             p.pause()
             isPlaying = false
             updatePlaybackRateInfo(rate: 0.0)
+            broadcastJamControl(playing: false)
         } else {
             p.play()
             isPlaying = true
             updatePlaybackRateInfo(rate: 1.0)
+            broadcastJamControl(playing: true)
+        }
+    }
+
+    private func broadcastJamControl(playing: Bool) {
+        let jam = JamOrchestrator.shared
+        guard jam.isConnected && jam.client.isHost else { return }
+        let posMs = Int(progressSeconds * 1000)
+        Task { @MainActor in
+            if playing { await jam.client.sendPlay(positionMs: posMs) }
+            else { await jam.client.sendPause(positionMs: posMs) }
         }
     }
 
@@ -139,8 +157,15 @@ final class Player {
         let target = CMTime(seconds: max(0, seconds), preferredTimescale: 600)
         p.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             Task { @MainActor in
-                self?.progressSeconds = seconds
-                self?.updateElapsedTimeInfo()
+                guard let self else { return }
+                self.progressSeconds = seconds
+                self.updateElapsedTimeInfo()
+
+                // Jam-Broadcast
+                let jam = JamOrchestrator.shared
+                if jam.isConnected && jam.client.isHost {
+                    await jam.client.sendSeek(positionMs: Int(seconds * 1000))
+                }
             }
         }
     }

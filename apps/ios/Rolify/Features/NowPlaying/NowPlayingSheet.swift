@@ -6,7 +6,11 @@ struct NowPlayingSheet: View {
     @State private var isDragging = false
     @State private var dragProgress: Double = 0
     @State private var showQueue = false
-    @State private var isLiked = false  // TODO: wire auf /me/likes wenn Backend steht
+    @State private var showJam = false
+    @State private var isLiked = false
+    @State private var likeChecking = false
+    @State private var api = API.shared
+    @State private var lastCheckedTrackId: String?
 
     var body: some View {
         ZStack {
@@ -48,6 +52,49 @@ struct NowPlayingSheet: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showJam) {
+            JamSheet()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+        .onChange(of: player.currentTrack?.trackId) { _, newId in
+            if let id = newId, id != lastCheckedTrackId {
+                lastCheckedTrackId = id
+                Task { await refreshLikedStatus(trackId: id) }
+            }
+        }
+        .task {
+            if let id = player.currentTrack?.trackId {
+                lastCheckedTrackId = id
+                await refreshLikedStatus(trackId: id)
+            }
+        }
+    }
+
+    private func refreshLikedStatus(trackId: String) async {
+        likeChecking = true
+        defer { likeChecking = false }
+        if let status = try? await api.isTrackLiked(trackId) {
+            self.isLiked = status
+        }
+    }
+
+    private func toggleLike() {
+        guard let id = player.currentTrack?.trackId else { return }
+        let wasLiked = isLiked
+        // Optimistic UI
+        isLiked.toggle()
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        Task {
+            do {
+                if wasLiked { try await api.unlikeTrack(id) }
+                else { try await api.likeTrack(id) }
+            } catch {
+                // Revert
+                await MainActor.run { self.isLiked = wasLiked }
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            }
+        }
     }
 
     // MARK: - Title + Heart + Dots
@@ -66,10 +113,7 @@ struct NowPlayingSheet: View {
             }
             Spacer(minLength: DS.s)
 
-            Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                isLiked.toggle()
-            } label: {
+            Button { toggleLike() } label: {
                 Image(systemName: isLiked ? "heart.fill" : "heart")
                     .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(isLiked ? DS.accent : DS.textSecondary)
@@ -190,20 +234,26 @@ struct NowPlayingSheet: View {
         }
     }
 
-    // MARK: - Bottom actions (AirPlay + Share + Queue)
+    // MARK: - Bottom actions (AirPlay + Jam + Share + Queue)
 
     private var bottomActions: some View {
         HStack {
+            AirPlayButton(tintColor: UIColor(DS.textSecondary))
+                .frame(width: 28, height: 28)
+
+            Spacer()
+
             Button {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                showJam = true
             } label: {
-                Image(systemName: "hifispeaker.and.appletv")
+                Image(systemName: "wifi")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(DS.textSecondary)
+                    .foregroundStyle(JamOrchestrator.shared.isConnected ? DS.accent : DS.textSecondary)
             }
             .buttonStyle(.plain)
 
-            Spacer()
+            Spacer().frame(width: DS.l)
 
             Button {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -218,7 +268,7 @@ struct NowPlayingSheet: View {
             }
             .buttonStyle(.plain)
 
-            Spacer().frame(width: DS.xxl)
+            Spacer().frame(width: DS.l)
 
             Button {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()

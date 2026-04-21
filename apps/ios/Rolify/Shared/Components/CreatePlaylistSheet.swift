@@ -1,13 +1,14 @@
 import SwiftUI
 
 /// Minimales Sheet zum Erstellen einer neuen Playlist.
-/// Wird getriggert von LibraryView (Plus-Button) oder AddToPlaylistSheet (Neue Playlist).
 struct CreatePlaylistSheet: View {
     let onCreated: (PlaylistSummary) -> Void
+    var startAsCollab: Bool = false
     @Environment(\.dismiss) var dismiss
 
     @State private var name = ""
     @State private var isPublic = false
+    @State private var isCollaborative = false
     @State private var isSubmitting = false
     @State private var error: String?
     @State private var api = API.shared
@@ -38,14 +39,26 @@ struct CreatePlaylistSheet: View {
                 }
                 .padding(.horizontal, DS.xl)
 
-                Toggle(isOn: $isPublic) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Oeffentlich")
-                            .font(DS.Font.bodyLarge)
-                            .foregroundStyle(DS.textPrimary)
-                        Text("Andere Leute koennen diese Playlist finden")
-                            .font(DS.Font.footnote)
-                            .foregroundStyle(DS.textSecondary)
+                VStack(spacing: DS.s) {
+                    Toggle(isOn: $isPublic) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Oeffentlich")
+                                .font(DS.Font.bodyLarge)
+                                .foregroundStyle(DS.textPrimary)
+                            Text("Andere Leute koennen sie finden")
+                                .font(DS.Font.footnote)
+                                .foregroundStyle(DS.textSecondary)
+                        }
+                    }
+                    Toggle(isOn: $isCollaborative) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Kollaborativ")
+                                .font(DS.Font.bodyLarge)
+                                .foregroundStyle(DS.textPrimary)
+                            Text("Freunde duerfen Tracks adden")
+                                .font(DS.Font.footnote)
+                                .foregroundStyle(DS.textSecondary)
+                        }
                     }
                 }
                 .tint(DS.accent)
@@ -63,7 +76,10 @@ struct CreatePlaylistSheet: View {
             .padding(.top, DS.l)
         }
         .preferredColorScheme(.dark)
-        .onAppear { nameFocused = true }
+        .onAppear {
+            nameFocused = true
+            if startAsCollab { isCollaborative = true }
+        }
     }
 
     private var header: some View {
@@ -71,7 +87,7 @@ struct CreatePlaylistSheet: View {
             Button("Abbrechen") { dismiss() }
                 .foregroundStyle(DS.textSecondary)
             Spacer()
-            Text("Neue Playlist")
+            Text(isCollaborative ? "Kollab-Playlist" : "Neue Playlist")
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(DS.textPrimary)
             Spacer()
@@ -92,7 +108,12 @@ struct CreatePlaylistSheet: View {
         defer { isSubmitting = false }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
-            let created = try await api.createPlaylist(name: trimmed, description: nil, isPublic: isPublic)
+            let created = try await api.createPlaylist(
+                name: trimmed,
+                description: nil,
+                isPublic: isPublic,
+                isCollaborative: isCollaborative
+            )
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             onCreated(created)
             dismiss()

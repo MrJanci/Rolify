@@ -6,6 +6,7 @@ struct ArtistDetailView: View {
     @State private var detail: ArtistDetail?
     @State private var isLoading = true
     @State private var error: String?
+    @State private var isSaved = false
     @State private var api = API.shared
     @State private var player = Player.shared
 
@@ -22,23 +23,39 @@ struct ArtistDetailView: View {
                             coverUrl: detail.imageUrl.isEmpty ? nil : detail.imageUrl,
                             baseColor: Color(red: 0.60, green: 0.28, blue: 0.81)
                         ) {
-                            Button {
-                                guard let first = detail.topTracks.first else { return }
-                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                let q = detail.topTracks.map { QueueTrack($0) }
-                                Task { await player.play(queue: q, startingAt: first.id) }
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "play.fill").font(.system(size: 16, weight: .black))
-                                    Text("Abspielen").font(.system(size: 15, weight: .bold))
+                            HStack(spacing: DS.m) {
+                                Button { Task { await toggleSave() } } label: {
+                                    Text(isSaved ? "Folgt" : "Folgen")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundStyle(isSaved ? DS.textPrimary : .black)
+                                        .padding(.horizontal, DS.l)
+                                        .frame(height: 36)
+                                        .background(isSaved ? DS.bgElevated : DS.textPrimary)
+                                        .overlay(
+                                            Capsule().stroke(isSaved ? DS.textSecondary : .clear, lineWidth: 1)
+                                        )
+                                        .clipShape(Capsule())
                                 }
-                                .foregroundStyle(.black)
-                                .padding(.horizontal, 32)
-                                .frame(height: 48)
-                                .background(DS.accent)
-                                .clipShape(Capsule())
+                                .buttonStyle(.plain)
+
+                                Button {
+                                    guard let first = detail.topTracks.first else { return }
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    let q = detail.topTracks.map { QueueTrack($0) }
+                                    Task { await player.play(queue: q, startingAt: first.id) }
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "play.fill").font(.system(size: 16, weight: .black))
+                                        Text("Abspielen").font(.system(size: 15, weight: .bold))
+                                    }
+                                    .foregroundStyle(.black)
+                                    .padding(.horizontal, 32)
+                                    .frame(height: 48)
+                                    .background(DS.accent)
+                                    .clipShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
 
                         if !detail.topTracks.isEmpty {
@@ -120,8 +137,21 @@ struct ArtistDetailView: View {
         defer { isLoading = false }
         do {
             self.detail = try await api.artistDetail(id: artistId)
+            self.isSaved = (try? await api.isArtistSaved(artistId)) ?? false
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+
+    private func toggleSave() async {
+        let wasSaved = isSaved
+        isSaved.toggle()
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        do {
+            if wasSaved { try await api.unsaveArtist(artistId) }
+            else { try await api.saveArtist(artistId) }
+        } catch {
+            await MainActor.run { isSaved = wasSaved }
         }
     }
 }

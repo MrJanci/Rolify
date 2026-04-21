@@ -81,6 +81,9 @@ struct PlaylistSummary: Codable, Identifiable, Hashable {
     let coverUrl: String
     let isPublic: Bool
     let trackCount: Int
+    var isCollaborative: Bool? = false
+    var isMixed: Bool? = false
+    var isOwned: Bool? = true
 }
 
 struct PlaylistDetail: Codable, Hashable {
@@ -91,6 +94,18 @@ struct PlaylistDetail: Codable, Hashable {
     let isPublic: Bool
     let ownerId: String
     let tracks: [PlaylistTrackItem]
+    var isCollaborative: Bool? = false
+    var isMixed: Bool? = false
+    var isOwned: Bool? = true
+    var canEdit: Bool? = true
+    var collaborators: [CollaboratorInfo]? = nil
+}
+
+struct CollaboratorInfo: Codable, Identifiable, Hashable {
+    let id: String
+    let displayName: String
+    let avatarUrl: String?
+    let role: String  // EDITOR / VIEWER
 }
 
 struct PlaylistTrackItem: Codable, Identifiable, Hashable {
@@ -266,9 +281,9 @@ final class API {
         try await request("/playlists/me", method: "GET")
     }
 
-    func createPlaylist(name: String, description: String? = nil, isPublic: Bool = false) async throws -> PlaylistSummary {
-        struct Body: Encodable { let name: String; let description: String?; let isPublic: Bool }
-        return try await request("/playlists", method: "POST", body: Body(name: name, description: description, isPublic: isPublic))
+    func createPlaylist(name: String, description: String? = nil, isPublic: Bool = false, isCollaborative: Bool = false) async throws -> PlaylistSummary {
+        struct Body: Encodable { let name: String; let description: String?; let isPublic: Bool; let isCollaborative: Bool }
+        return try await request("/playlists", method: "POST", body: Body(name: name, description: description, isPublic: isPublic, isCollaborative: isCollaborative))
     }
 
     func playlistDetail(id: String) async throws -> PlaylistDetail {
@@ -324,6 +339,155 @@ final class API {
     func resumeScrapeJob(id: String) async throws {
         struct Out: Decodable { let status: String }
         let _: Out = try await request("/admin/scrape/jobs/\(id)/resume", method: "POST")
+    }
+
+    // MARK: Library — Liked Tracks / Saved Albums / Saved Artists
+
+    struct LikedTracksResponse: Codable {
+        struct Item: Codable, Identifiable, Hashable {
+            let id: String
+            let title: String
+            let artist: String
+            let artistId: String
+            let album: String
+            let albumId: String
+            let coverUrl: String
+            let durationMs: Int
+        }
+        let tracks: [Item]
+    }
+
+    func likedTracks() async throws -> [LikedTracksResponse.Item] {
+        let r: LikedTracksResponse = try await request("/library/tracks", method: "GET")
+        return r.tracks
+    }
+
+    func isTrackLiked(_ id: String) async throws -> Bool {
+        struct Out: Decodable { let liked: Bool }
+        let r: Out = try await request("/library/tracks/\(id)/status", method: "GET")
+        return r.liked
+    }
+
+    func likeTrack(_ id: String) async throws {
+        try await requestVoid("/library/tracks/\(id)", method: "POST")
+    }
+
+    func unlikeTrack(_ id: String) async throws {
+        try await requestVoid("/library/tracks/\(id)", method: "DELETE")
+    }
+
+    struct SavedAlbumsResponse: Codable {
+        struct Item: Codable, Identifiable, Hashable {
+            let id: String
+            let title: String
+            let artist: String
+            let artistId: String
+            let coverUrl: String
+            let releaseYear: Int
+        }
+        let albums: [Item]
+    }
+
+    func savedAlbums() async throws -> [SavedAlbumsResponse.Item] {
+        let r: SavedAlbumsResponse = try await request("/library/albums", method: "GET")
+        return r.albums
+    }
+
+    func isAlbumSaved(_ id: String) async throws -> Bool {
+        struct Out: Decodable { let saved: Bool }
+        let r: Out = try await request("/library/albums/\(id)/status", method: "GET")
+        return r.saved
+    }
+
+    func saveAlbum(_ id: String) async throws {
+        try await requestVoid("/library/albums/\(id)", method: "POST")
+    }
+
+    func unsaveAlbum(_ id: String) async throws {
+        try await requestVoid("/library/albums/\(id)", method: "DELETE")
+    }
+
+    struct SavedArtistsResponse: Codable {
+        struct Item: Codable, Identifiable, Hashable {
+            let id: String
+            let name: String
+            let imageUrl: String?
+        }
+        let artists: [Item]
+    }
+
+    func savedArtists() async throws -> [SavedArtistsResponse.Item] {
+        let r: SavedArtistsResponse = try await request("/library/artists", method: "GET")
+        return r.artists
+    }
+
+    func isArtistSaved(_ id: String) async throws -> Bool {
+        struct Out: Decodable { let saved: Bool }
+        let r: Out = try await request("/library/artists/\(id)/status", method: "GET")
+        return r.saved
+    }
+
+    func saveArtist(_ id: String) async throws {
+        try await requestVoid("/library/artists/\(id)", method: "POST")
+    }
+
+    func unsaveArtist(_ id: String) async throws {
+        try await requestVoid("/library/artists/\(id)", method: "DELETE")
+    }
+
+    // MARK: Mixed Playlist
+
+    func generateMixedPlaylist() async throws -> PlaylistSummary {
+        try await request("/browse/mixed", method: "POST")
+    }
+
+    // MARK: Collaborators
+
+    func addCollaborator(playlistId: String, email: String, role: String = "EDITOR") async throws -> CollaboratorInfo {
+        struct Body: Encodable { let email: String; let role: String }
+        return try await request("/playlists/\(playlistId)/collaborators", method: "POST", body: Body(email: email, role: role))
+    }
+
+    func removeCollaborator(playlistId: String, userId: String) async throws {
+        try await requestVoid("/playlists/\(playlistId)/collaborators/\(userId)", method: "DELETE")
+    }
+
+    // MARK: Jam
+
+    struct JamCreateResponse: Codable {
+        let code: String
+        let sessionId: String
+        let name: String?
+        let hostUserId: String
+    }
+
+    struct JamJoinResponse: Codable {
+        let code: String
+        let sessionId: String
+        let name: String?
+        let hostUserId: String
+        let hostDisplayName: String
+        let currentTrackId: String?
+        let positionMs: Int
+        let isPaused: Bool
+    }
+
+    func createJam(name: String? = nil, trackId: String? = nil) async throws -> JamCreateResponse {
+        struct Body: Encodable { let name: String?; let trackId: String? }
+        return try await request("/jam", method: "POST", body: Body(name: name, trackId: trackId))
+    }
+
+    func joinJam(code: String) async throws -> JamJoinResponse {
+        struct Body: Encodable { let code: String }
+        return try await request("/jam/join", method: "POST", body: Body(code: code))
+    }
+
+    func leaveJam(code: String) async throws {
+        try await requestVoid("/jam/\(code)/leave", method: "POST")
+    }
+
+    func endJam(code: String) async throws {
+        try await requestVoid("/jam/\(code)", method: "DELETE")
     }
 
     // MARK: Request-raw helpers
