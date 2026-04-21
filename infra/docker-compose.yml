@@ -140,7 +140,22 @@ services:
       - ./certs:/etc/nginx/certs:ro
     profiles: [production]
 
+  # SideStore Anisette-Server
+  # Ermoeglicht autonome Cert-Refresh auf dem iPhone (ohne PC + ohne StosVPN).
+  # SideStore ruft diesen Server fuer Apple-ID-2FA-Token ab; iPhone braucht nur
+  # WireGuard-Zugriff zu 10.8.0.1:6969 (oder direkt ueber Public-DNS wenn Caddy-
+  # Proxy konfiguriert ist).
+  anisette:
+    image: dadoum/anisette-v3-server:latest
+    container_name: rolify-anisette
+    restart: unless-stopped
+    ports:
+      - "6969:6969"
+    volumes:
+      - anisette-data:/home/Alcoholic/.config/anisette-v3
+
 volumes:
   pg-data:
   redis-data:
   minio-data:
+  anisette-data:

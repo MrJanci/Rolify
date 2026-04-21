@@ -375,17 +375,21 @@ struct LibraryView: View {
     private func load() async {
         isLoading = true; error = nil
         defer { isLoading = false }
-        async let pl = api.myPlaylists()
-        async let liked = api.likedTracks()
-        async let albs = api.savedAlbums()
-        async let arts = api.savedArtists()
-        do {
-            self.playlists = try await pl
-            self.likedCount = (try await liked).count
-            self.savedAlbums = try await albs
-            self.savedArtists = try await arts
-        } catch {
-            self.error = error.localizedDescription
+
+        // Jeden Call einzeln - Partial-Data statt komplettem Screen-Fail wenn eine
+        // einzelne Route haengt/cancelt. Pull-to-refresh swallowt Cancellations.
+        var hardError: String? = nil
+
+        if let pl = try? await api.myPlaylists() { self.playlists = pl }
+        else if !Task.isCancelled { hardError = "Playlists konnten nicht geladen werden" }
+
+        if let liked = try? await api.likedTracks() { self.likedCount = liked.count }
+        if let albs = try? await api.savedAlbums() { self.savedAlbums = albs }
+        if let arts = try? await api.savedArtists() { self.savedArtists = arts }
+
+        // Error nur setzen wenn Core-Call (playlists) fehlschlaegt UND nicht cancelled
+        if let msg = hardError, !Task.isCancelled {
+            self.error = msg
         }
     }
 }
