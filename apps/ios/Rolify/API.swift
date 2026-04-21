@@ -264,6 +264,16 @@ final class API {
         try await request("/browse/home", method: "GET")
     }
 
+    struct AllTracksResponse: Codable { let tracks: [TrackListItem] }
+
+    /// Alle verfuegbaren Tracks im System (flat, paginated).
+    /// Fuer Library-"Alle Songs"-Filter — zeigt auch gescrapete Tracks die noch
+    /// in keiner Playlist sind.
+    func allTracks(limit: Int = 200, offset: Int = 0) async throws -> [TrackListItem] {
+        let r: AllTracksResponse = try await request("/tracks?limit=\(limit)&offset=\(offset)", method: "GET")
+        return r.tracks
+    }
+
     func streamManifest(trackId: String) async throws -> StreamManifest {
         try await request("/stream/\(trackId)", method: "GET")
     }
