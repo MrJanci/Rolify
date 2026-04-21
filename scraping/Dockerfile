@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY music_acquirer ./music_acquirer
 COPY scraper_worker ./scraper_worker
 COPY ui_scraper ./ui_scraper
+COPY scripts ./scripts
 
 # .spotify-token.json kommt als Volume-Mount (nicht in Image baken)
 # Output-Temp-Ordner

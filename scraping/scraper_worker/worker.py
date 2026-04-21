@@ -27,6 +27,9 @@ from music_acquirer.spotify_meta import (
     fetch_playlist_tracks,
     fetch_liked_tracks,
     fetch_single_track,
+    fetch_playlist_meta,
+    PlaylistMeta,
+    TrackMeta,
 )
 
 log = structlog.get_logger()
@@ -54,7 +57,7 @@ async def claim_next_job(conn: psycopg.AsyncConnection) -> dict | None:
                   LIMIT 1
                   FOR UPDATE SKIP LOCKED
              )
-             RETURNING id, "playlistUrl", "processedTracks", "failedTracks", "totalTracks"
+             RETURNING id, "playlistUrl", "processedTracks", "failedTracks", "totalTracks", "createdBy"
         """)
         row = await cur.fetchone()
         await conn.commit()
@@ -66,6 +69,7 @@ async def claim_next_job(conn: psycopg.AsyncConnection) -> dict | None:
             "processedTracks": row[2] or 0,
             "failedTracks": row[3] or 0,
             "totalTracks": row[4] or 0,
+            "createdBy": row[5],
         }
 
 
@@ -112,22 +116,146 @@ async def existing_spotify_ids(conn: psycopg.AsyncConnection, ids: list[str]) ->
         return {row[0] for row in rows if row[0]}
 
 
+def _cuid() -> str:
+    """Simple cuid-kompatible ID-Generation (Prisma erwartet cuid-format).
+    Nutzt Python secrets + base36 — reicht fuer Uniqueness."""
+    import secrets
+    import time
+    ts = int(time.time() * 1000)
+    # c + 8-char-timestamp-base36 + 16-char-random-base36
+    alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+    def b36(n: int, length: int) -> str:
+        s = ""
+        for _ in range(length):
+            s = alphabet[n % 36] + s
+            n //= 36
+        return s
+    rand = secrets.token_bytes(10)
+    rand_int = int.from_bytes(rand, "big")
+    return "c" + b36(ts, 8) + b36(rand_int, 16)
+
+
+async def create_rolify_playlist(
+    conn: psycopg.AsyncConnection,
+    user_id: str,
+    meta: PlaylistMeta,
+) -> str:
+    """Erstellt eine Rolify-Playlist als Spiegel der Spotify-Playlist.
+    Returns playlist_id. Idempotent: wenn bereits eine Playlist fuer denselben
+    User+Name existiert (von einem frueheren Scrape derselben URL), re-use die."""
+    async with conn.cursor() as cur:
+        # Suche existing playlist von diesem User mit gleichem Namen
+        await cur.execute(
+            'SELECT id FROM "Playlist" WHERE "userId" = %s AND name = %s LIMIT 1',
+            (user_id, meta.name),
+        )
+        row = await cur.fetchone()
+        if row:
+            return row[0]
+        playlist_id = _cuid()
+        description = f"Aus Spotify: {meta.owner_name}".strip() if meta.owner_name else "Aus Spotify gescraped"
+        await cur.execute(
+            '''
+            INSERT INTO "Playlist" (id, "userId", name, "coverUrl", description,
+                                    "isPublic", "isCollaborative", "isMixed",
+                                    "createdAt", "updatedAt")
+            VALUES (%s, %s, %s, %s, %s, false, false, false, now(), now())
+            ''',
+            (playlist_id, user_id, meta.name, meta.cover_url or None, description),
+        )
+        await conn.commit()
+        return playlist_id
+
+
+async def link_tracks_to_playlist(
+    conn: psycopg.AsyncConnection,
+    playlist_id: str,
+    track_metas: list[TrackMeta],
+) -> int:
+    """Fuegt gescrape Tracks als PlaylistTrack-Rows hinzu (upsert + position-order).
+    Returns anzahl added/existing."""
+    async with conn.cursor() as cur:
+        # Hole track_ids aus DB per spotifyId
+        spotify_ids = [t.spotify_id for t in track_metas]
+        await cur.execute(
+            'SELECT "spotifyId", id FROM "Track" WHERE "spotifyId" = ANY(%s)',
+            (spotify_ids,),
+        )
+        rows = await cur.fetchall()
+        sid_to_tid = {r[0]: r[1] for r in rows}
+
+        # Position: append to end
+        await cur.execute(
+            'SELECT COALESCE(MAX(position), -1) FROM "PlaylistTrack" WHERE "playlistId" = %s',
+            (playlist_id,),
+        )
+        max_pos_row = await cur.fetchone()
+        start_pos = (max_pos_row[0] if max_pos_row else -1) + 1
+
+        count = 0
+        for i, tm in enumerate(track_metas):
+            tid = sid_to_tid.get(tm.spotify_id)
+            if not tid:
+                continue
+            try:
+                await cur.execute(
+                    '''
+                    INSERT INTO "PlaylistTrack" ("playlistId", "trackId", position, "addedAt")
+                    VALUES (%s, %s, %s, now())
+                    ON CONFLICT ("playlistId", "trackId") DO NOTHING
+                    ''',
+                    (playlist_id, tid, start_pos + i),
+                )
+                count += 1
+            except Exception:
+                pass
+        await conn.commit()
+        # Touch playlist updatedAt
+        async with conn.cursor() as cur2:
+            await cur2.execute('UPDATE "Playlist" SET "updatedAt" = now() WHERE id = %s', (playlist_id,))
+            await conn.commit()
+        return count
+
+
+async def set_result_playlist_id(conn: psycopg.AsyncConnection, job_id: str, playlist_id: str) -> None:
+    async with conn.cursor() as cur:
+        await cur.execute(
+            'UPDATE "ScrapeJob" SET "resultPlaylistId" = %s, "updatedAt" = now() WHERE id = %s',
+            (playlist_id, job_id),
+        )
+        await conn.commit()
+
+
 async def run_job(conn: psycopg.AsyncConnection, job_id: str, playlist_url: str,
-                  prev_processed: int, prev_failed: int) -> None:
+                  prev_processed: int, prev_failed: int,
+                  created_by: str | None = None) -> None:
     job_log = log.bind(job_id=job_id, url=playlist_url)
     job_log.info("job_started", resume_from=prev_processed + prev_failed)
     try:
         # Dispatch nach URL-Typ
         lower = playlist_url.lower()
+        should_create_playlist = False
+        playlist_meta: PlaylistMeta | None = None
+
         if "collection/tracks" in lower or lower == "spotify:collection:tracks":
             tracks = fetch_liked_tracks()
             job_log.info("dispatched_liked_tracks")
+            # Liked Songs landen in LibraryTrack (automatisch, nicht hier) — keine Playlist
         elif "spotify:track:" in lower or "/track/" in lower:
             tracks = fetch_single_track(playlist_url)
             job_log.info("dispatched_single_track")
+            # Single-Track → keine Playlist
         else:
             tracks = fetch_playlist_tracks(playlist_url)
             job_log.info("dispatched_playlist")
+            should_create_playlist = bool(created_by)
+            if should_create_playlist:
+                try:
+                    playlist_meta = fetch_playlist_meta(playlist_url)
+                    if playlist_meta:
+                        job_log.info("playlist_meta_fetched", name=playlist_meta.name)
+                except Exception as e:
+                    job_log.warn("playlist_meta_fetch_failed", error=str(e))
         total = len(tracks)
         job_log.info("tracks_fetched", total=total)
 
@@ -194,6 +322,18 @@ async def run_job(conn: psycopg.AsyncConnection, job_id: str, playlist_url: str,
             job_log.info("job_paused", processed=processed, failed=failed)
             # Bleibt in PAUSED-Status (gesetzt vom User via API)
             return
+
+        # Auto-Playlist-Creation nach erfolgreichem Playlist-Scrape
+        if should_create_playlist and playlist_meta and created_by:
+            try:
+                async with await psycopg.AsyncConnection.connect(acq_settings.database_url) as c:
+                    plist_id = await create_rolify_playlist(c, created_by, playlist_meta)
+                    linked = await link_tracks_to_playlist(c, plist_id, tracks)
+                    await set_result_playlist_id(c, job_id, plist_id)
+                    job_log.info("playlist_created", playlist_id=plist_id, linked_tracks=linked)
+            except Exception as e:
+                job_log.warn("playlist_creation_failed", error=str(e))
+
         await complete_job(conn, job_id)
         job_log.info("job_done", processed=processed, failed=failed)
 
@@ -215,7 +355,8 @@ async def main():
                 if job:
                     await run_job(
                         conn, job["id"], job["playlistUrl"],
-                        job["processedTracks"], job["failedTracks"]
+                        job["processedTracks"], job["failedTracks"],
+                        created_by=job.get("createdBy"),
                     )
                 else:
                     await asyncio.sleep(POLL_INTERVAL_S)

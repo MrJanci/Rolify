@@ -100,6 +100,7 @@ export default async function adminRoutes(app: FastifyInstance) {
         processedTracks: j.processedTracks,
         failedTracks: j.failedTracks,
         errorMessage: j.errorMessage,
+        resultPlaylistId: j.resultPlaylistId,
         createdAt: j.createdAt,
         startedAt: j.startedAt,
         completedAt: j.completedAt,
