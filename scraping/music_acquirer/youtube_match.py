@@ -28,27 +28,46 @@ MIN_TITLE_SIMILARITY = 0.6
 
 
 def match_track(meta: TrackMeta) -> YouTubeMatch | None:
-    """Sucht den besten YouTube-Video-Match fuer einen Spotify-Track."""
+    """Sucht den besten YouTube-Video-Match fuer einen Spotify-Track.
+
+    Queries sortiert damit wir zuerst Topic-Channels (keine Age-Restriction)
+    und Audio-Uploads (selten age-gated) probieren, als Last Resort Musikvideo.
+    Age-gated Kandidaten werden geskippt weil yt-dlp ohne Cookies sie eh nicht
+    downloaden kann.
+    """
     queries = [
-        f"{meta.artist} - {meta.title} topic",   # YouTube Music Topic-Channel
-        f"{meta.artist} {meta.title} audio",
-        f"{meta.artist} - {meta.title}",
+        f"{meta.artist} - {meta.title} topic",         # YT Music Topic-Channel (Auto-Generated, never age-gated)
+        f"{meta.artist} {meta.title} audio",           # Lyrics/Audio-only uploads (selten age-gated)
+        f"{meta.artist} {meta.title} lyrics",          # Lyrics-Videos (selten age-gated)
+        f"{meta.artist} - {meta.title}",               # Standard (Musikvideos, oft age-gated)
     ]
     spotify_duration_s = meta.duration_ms // 1000
+    best_restricted: YouTubeMatch | None = None
 
     for q in queries:
         candidates = _search(q, limit=5)
         for c in candidates:
             score = _score_candidate(meta, c, spotify_duration_s)
-            if score > 0.7:
-                return YouTubeMatch(
-                    video_id=c["id"],
-                    url=c["webpage_url"],
-                    title=c["title"],
-                    duration_s=c.get("duration") or 0,
-                    score=score,
-                )
-    return None
+            if score <= 0.7:
+                continue
+            age_limit = c.get("age_limit") or 0
+            match = YouTubeMatch(
+                video_id=c["id"],
+                url=c["webpage_url"],
+                title=c["title"],
+                duration_s=c.get("duration") or 0,
+                score=score,
+            )
+            if age_limit > 0:
+                # Merken als Fallback falls sonst nix gefunden wird
+                if best_restricted is None or match.score > best_restricted.score:
+                    best_restricted = match
+                continue
+            return match
+
+    # Kein non-age-restricted Match — fallback zu age-restricted (wird wahrscheinlich
+    # failen beim Download aber besser als gar kein Versuch)
+    return best_restricted
 
 
 def _search(query: str, limit: int = 5) -> list[dict]:
