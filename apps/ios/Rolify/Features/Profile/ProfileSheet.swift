@@ -1,8 +1,10 @@
 import SwiftUI
 
-/// Vollbild-Variante des Account-Sheets (wenn User auf Profil-Tab tappt).
-/// Identisches Layout wie ProfileSheet aber ohne Grabber + Sheet-Behavior.
-struct ProfileView: View {
+/// Account-Sheet wie Spotify (Top-Right Avatar tippen -> dieses Sheet).
+/// Zeigt aktuellen User, plus Account-Management + Admin + Logout.
+struct ProfileSheet: View {
+    @Environment(\.dismiss) var dismiss
+
     @State private var api = API.shared
     @State private var user: UserProfile?
     @State private var isLoading = true
@@ -14,14 +16,13 @@ struct ProfileView: View {
     var body: some View {
         ZStack {
             DS.bg.ignoresSafeArea()
-            content
-        }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Text("Profil").font(DS.Font.title).foregroundStyle(DS.textPrimary)
+
+            VStack(spacing: 0) {
+                grabber
+                content
             }
         }
+        .preferredColorScheme(.dark)
         .sheet(isPresented: $showAdminSheet) {
             AdminScrapeSheet()
                 .presentationDetents([.large])
@@ -34,11 +35,22 @@ struct ProfileView: View {
         }
         .alert("Wirklich abmelden?", isPresented: $showLogoutConfirm) {
             Button("Abbrechen", role: .cancel) {}
-            Button("Abmelden", role: .destructive) { api.logout() }
+            Button("Abmelden", role: .destructive) {
+                api.logout()
+                dismiss()
+            }
         } message: {
             Text("Du musst dich danach neu einloggen.")
         }
         .task { if user == nil { await load() } }
+    }
+
+    private var grabber: some View {
+        Capsule()
+            .fill(Color.white.opacity(0.3))
+            .frame(width: 36, height: 5)
+            .padding(.top, DS.s)
+            .padding(.bottom, DS.m)
     }
 
     @ViewBuilder
@@ -48,9 +60,9 @@ struct ProfileView: View {
         } else if let user {
             ScrollView {
                 VStack(spacing: DS.m) {
-                    Spacer().frame(height: DS.s)
-
-                    userCard(user).padding(.horizontal, DS.l)
+                    userCard(user)
+                        .padding(.horizontal, DS.l)
+                        .padding(.bottom, DS.s)
 
                     menuGroup {
                         menuRow(icon: "arrow.down.circle.fill", title: "Scraping & Downloads") { showAdminSheet = true }
@@ -67,10 +79,9 @@ struct ProfileView: View {
                         .foregroundStyle(DS.textTertiary)
                         .padding(.top, DS.m)
 
-                    Spacer().frame(height: 140)
+                    Spacer().frame(height: DS.xxl)
                 }
             }
-            .refreshable { await load() }
         } else if let error {
             ErrorView(message: error) { Task { await load() } }
         } else {
@@ -85,14 +96,14 @@ struct ProfileView: View {
                     colors: [DS.accentBright, DS.accent, DS.accentDeep],
                     startPoint: .topLeading, endPoint: .bottomTrailing
                 ))
-                .frame(width: 64, height: 64)
+                .frame(width: 56, height: 56)
                 Text(initials(from: u.displayName))
-                    .font(.system(size: 22, weight: .black))
+                    .font(.system(size: 20, weight: .black))
                     .foregroundStyle(.white)
             }
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(u.displayName)
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.system(size: 17, weight: .bold))
                     .foregroundStyle(DS.textPrimary)
                 Text(u.email)
                     .font(DS.Font.footnote)
@@ -153,5 +164,76 @@ struct ProfileView: View {
         isLoading = true; error = nil
         defer { isLoading = false }
         do { self.user = try await api.me() } catch { self.error = error.localizedDescription }
+    }
+}
+
+// MARK: - Small SettingsSheet (API-Base-URL override + App-Info)
+
+struct SettingsSheet: View {
+    @Environment(\.dismiss) var dismiss
+    @State private var apiBase: String = UserDefaults.standard.string(forKey: "rolify.apiBase") ?? ""
+
+    var body: some View {
+        ZStack {
+            DS.bg.ignoresSafeArea()
+
+            VStack(spacing: DS.l) {
+                header
+
+                VStack(alignment: .leading, spacing: DS.s) {
+                    Text("API Base-URL")
+                        .font(DS.Font.footnote)
+                        .foregroundStyle(DS.textSecondary)
+                    TextField("https://rolify.rolak.ch", text: $apiBase)
+                        .font(.system(size: 15))
+                        .foregroundStyle(DS.textPrimary)
+                        .padding(.horizontal, DS.l)
+                        .frame(height: 48)
+                        .background(DS.bgElevated)
+                        .clipShape(RoundedRectangle(cornerRadius: DS.radiusM, style: .continuous))
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
+                    Text("Leer lassen fuer Production. Fuer LAN-Dev: http://<pi-lan-ip>:3000")
+                        .font(DS.Font.footnote)
+                        .foregroundStyle(DS.textTertiary)
+                }
+                .padding(.horizontal, DS.xl)
+
+                Button("Speichern & App neu starten") {
+                    let trimmed = apiBase.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if trimmed.isEmpty {
+                        UserDefaults.standard.removeObject(forKey: "rolify.apiBase")
+                    } else {
+                        UserDefaults.standard.set(trimmed, forKey: "rolify.apiBase")
+                    }
+                    dismiss()
+                }
+                .foregroundStyle(.black)
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
+                .background(DS.accent)
+                .clipShape(Capsule())
+                .padding(.horizontal, DS.xl)
+
+                Spacer()
+            }
+            .padding(.top, DS.l)
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private var header: some View {
+        HStack {
+            Button("Schliessen") { dismiss() }
+                .foregroundStyle(DS.textSecondary)
+            Spacer()
+            Text("Einstellungen")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(DS.textPrimary)
+            Spacer()
+            Color.clear.frame(width: 80)
+        }
+        .padding(.horizontal, DS.l)
     }
 }
