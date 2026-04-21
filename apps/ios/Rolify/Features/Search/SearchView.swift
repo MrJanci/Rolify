@@ -3,22 +3,24 @@ import SwiftUI
 struct SearchView: View {
     @State private var query = ""
     @State private var results: SearchResponse?
+    @State private var externalResults: [API.ExternalSearchResponse.Hit] = []
     @State private var isLoading = false
+    @State private var isLoadingExternal = false
     @State private var error: String?
     @State private var debounceTask: Task<Void, Never>?
     @State private var showAddToPlaylist = false
     @State private var pendingTrackId = ""
     @State private var pendingTrackTitle = ""
     @State private var showProfileSheet = false
+    @State private var downloadingIds: Set<String> = []
     @State private var api = API.shared
     @State private var player = Player.shared
 
-    /// Spotify-Style Browse-Kategorien. Farben direkt aus Spotify iOS Listing.
     private let topCategories: [(name: String, color: Color, icon: String)] = [
-        ("Musik", Color(red: 0.92, green: 0.29, blue: 0.51), "music.note"),                 // pink
-        ("Podcasts", Color(red: 0.12, green: 0.60, blue: 0.60), "mic.fill"),                // teal
-        ("Hoerbuecher", Color(red: 0.13, green: 0.22, blue: 0.55), "book.fill"),            // navy
-        ("Live Events", Color(red: 0.49, green: 0.22, blue: 0.75), "mappin.and.ellipse"),   // purple
+        ("Musik", Color(red: 0.92, green: 0.29, blue: 0.51), "music.note"),
+        ("Podcasts", Color(red: 0.12, green: 0.60, blue: 0.60), "mic.fill"),
+        ("Hoerbuecher", Color(red: 0.13, green: 0.22, blue: 0.55), "book.fill"),
+        ("Live Events", Color(red: 0.49, green: 0.22, blue: 0.75), "mappin.and.ellipse"),
     ]
 
     private let genreCategories: [(name: String, color: Color)] = [
@@ -51,11 +53,15 @@ struct SearchView: View {
             debounceTask = Task {
                 try? await Task.sleep(for: .milliseconds(300))
                 if Task.isCancelled { return }
-                if newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    results = nil; error = nil; isLoading = false
+                let q = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if q.isEmpty {
+                    results = nil; externalResults = []; error = nil; isLoading = false
                     return
                 }
-                await runSearch(newValue)
+                // Parallel: lokal + extern
+                async let local: Void = runSearch(q)
+                async let external: Void = runExternalSearch(q)
+                _ = await (local, external)
             }
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -85,23 +91,27 @@ struct SearchView: View {
     private var content: some View {
         if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             browseGrid
-        } else if isLoading && results == nil {
+        } else if isLoading && results == nil && externalResults.isEmpty {
             ProgressView().tint(DS.accent).frame(maxHeight: .infinity)
         } else if let error {
             ErrorView(message: error) {
-                Task { await runSearch(query) }
+                Task {
+                    let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+                    async let l: Void = runSearch(q)
+                    async let e: Void = runExternalSearch(q)
+                    _ = await (l, e)
+                }
             }
-        } else if let results {
-            resultsView(results)
         } else {
-            Color.clear
+            combinedResults
         }
     }
+
+    // MARK: - Browse-Grid (empty state)
 
     private var browseGrid: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DS.xl) {
-                // Hero-Tiles (4 grosse: Music/Podcasts/Audiobooks/Live Events)
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: DS.m), GridItem(.flexible(), spacing: DS.m)], spacing: DS.m) {
                     ForEach(topCategories, id: \.name) { cat in
                         heroTile(name: cat.name, color: cat.color, icon: cat.icon)
@@ -110,7 +120,6 @@ struct SearchView: View {
                 .padding(.horizontal, DS.l)
                 .padding(.top, DS.l)
 
-                // Genre-Section
                 VStack(alignment: .leading, spacing: DS.m) {
                     Text("Durchsuche alle")
                         .font(DS.Font.title)
@@ -130,7 +139,6 @@ struct SearchView: View {
         }
     }
 
-    /// Grosser Hero-Tile (Music/Podcasts/etc) - Farbige Kachel mit Icon rechts unten rotiert.
     private func heroTile(name: String, color: Color, icon: String) -> some View {
         Button {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -138,8 +146,6 @@ struct SearchView: View {
         } label: {
             ZStack(alignment: .topLeading) {
                 color
-
-                // Icon rechts unten rotiert (Spotify-Style)
                 Image(systemName: icon)
                     .font(.system(size: 56, weight: .black))
                     .foregroundStyle(Color.white.opacity(0.95))
@@ -147,7 +153,6 @@ struct SearchView: View {
                     .offset(x: 40, y: 22)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     .clipped()
-
                 Text(name)
                     .font(.system(size: 20, weight: .black))
                     .foregroundStyle(.white)
@@ -159,7 +164,6 @@ struct SearchView: View {
         .buttonStyle(.plain)
     }
 
-    /// Standard-Genre-Card (kleinere farbige Kachel)
     private func genreCard(name: String, color: Color) -> some View {
         Button {
             UIImpactFeedbackGenerator(style: .soft).impactOccurred()
@@ -178,42 +182,167 @@ struct SearchView: View {
         .buttonStyle(.plain)
     }
 
+    // MARK: - Combined Results (local + external)
+
     @ViewBuilder
-    private func resultsView(_ r: SearchResponse) -> some View {
-        if r.tracks.isEmpty && r.artists.isEmpty && r.albums.isEmpty {
-            emptyResults
-        } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    tracksSection(r.tracks)
-                    artistsSection(r.artists)
-                    albumsSection(r.albums)
-                    Spacer().frame(height: 140)
+    private var combinedResults: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if let r = results {
+                    if !r.tracks.isEmpty {
+                        SectionHeader(title: "Songs")
+                        ForEach(r.tracks) { t in trackRowWithMenu(t, allTracks: r.tracks) }
+                    }
+                    if !r.artists.isEmpty {
+                        SectionHeader(title: "Kuenstler")
+                        ForEach(r.artists) { a in artistRow(a) }
+                    }
+                    if !r.albums.isEmpty {
+                        SectionHeader(title: "Alben")
+                        ForEach(r.albums) { alb in albumRow(alb) }
+                    }
+                }
+                if !externalResults.isEmpty {
+                    externalHeader
+                    ForEach(externalResults) { hit in externalRow(hit) }
+                } else if isLoadingExternal && results != nil {
+                    HStack { Spacer(); ProgressView().tint(DS.textSecondary); Spacer() }
+                        .padding(.vertical, DS.m)
+                }
+                Spacer().frame(height: 140)
+            }
+        }
+    }
+
+    private var externalHeader: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Aus dem Web")
+                    .font(.system(size: 22, weight: .black))
+                    .foregroundStyle(DS.textPrimary)
+                Text("Tippen zum Herunterladen, + fuer Playlist")
+                    .font(DS.Font.footnote)
+                    .foregroundStyle(DS.textSecondary)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, DS.xl)
+        .padding(.top, DS.l)
+        .padding(.bottom, DS.s)
+    }
+
+    // MARK: - External-Row
+
+    @ViewBuilder
+    private func externalRow(_ h: API.ExternalSearchResponse.Hit) -> some View {
+        let downloading = downloadingIds.contains(h.spotifyId) || h.isQueued
+        Button {
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+            if h.isDownloaded, let localId = h.localId {
+                // Direkt abspielen
+                let q = [QueueTrack(id: localId, title: h.title, artist: h.artist, coverUrl: h.coverUrl, durationMs: h.durationMs)]
+                Task { await player.play(queue: q, startingAt: localId) }
+            } else if !downloading {
+                Task { await triggerDownload(h.spotifyId) }
+            }
+        } label: {
+            HStack(spacing: DS.m) {
+                CoverImage(url: h.coverUrl, cornerRadius: DS.radiusS)
+                    .frame(width: 44, height: 44)
+                    .overlay(alignment: .center) {
+                        if !h.isDownloaded && !downloading {
+                            ZStack {
+                                Color.black.opacity(0.4)
+                                Image(systemName: "icloud.and.arrow.down")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundStyle(.white)
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: DS.radiusS))
+                        }
+                    }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(h.title)
+                        .font(DS.Font.body)
+                        .foregroundStyle(DS.textPrimary)
+                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        if h.isLiked {
+                            Image(systemName: "heart.fill").font(.system(size: 10)).foregroundStyle(DS.accent)
+                        }
+                        Text(h.artist)
+                            .font(DS.Font.footnote)
+                            .foregroundStyle(DS.textSecondary)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer()
+
+                if downloading {
+                    ProgressView().tint(DS.accent).scaleEffect(0.75)
+                } else if h.isDownloaded {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(DS.accent)
+                } else {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.system(size: 20))
+                        .foregroundStyle(DS.textSecondary)
+                }
+            }
+            .padding(.horizontal, DS.xl)
+            .padding(.vertical, DS.s)
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                Task { await triggerDownload(h.spotifyId) }
+            } label: {
+                Label(downloading ? "Wird geladen..." : "Herunterladen", systemImage: "arrow.down.circle")
+            }
+            .disabled(downloading || h.isDownloaded)
+
+            if h.isDownloaded, let localId = h.localId {
+                Button {
+                    pendingTrackId = localId
+                    pendingTrackTitle = h.title
+                    showAddToPlaylist = true
+                } label: {
+                    Label("Zu Playlist hinzufuegen", systemImage: "text.badge.plus")
                 }
             }
         }
     }
 
-    private var emptyResults: some View {
-        VStack(spacing: DS.m) {
-            Spacer().frame(height: 80)
-            Image(systemName: "magnifyingglass").font(.system(size: 40)).foregroundStyle(DS.textSecondary)
-            Text("Nichts gefunden").font(DS.Font.bodyLarge).foregroundStyle(DS.textPrimary)
-            Text("Fuer \"\(query)\"").font(DS.Font.caption).foregroundStyle(DS.textSecondary)
-            Spacer()
+    private func triggerDownload(_ spotifyId: String) async {
+        downloadingIds.insert(spotifyId)
+        defer { downloadingIds.remove(spotifyId) }
+        do {
+            _ = try await api.downloadExternalTrack(spotifyId: spotifyId)
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            // Refresh: markiere als queued
+            if let idx = externalResults.firstIndex(where: { $0.spotifyId == spotifyId }) {
+                var updated = externalResults[idx]
+                externalResults[idx] = API.ExternalSearchResponse.Hit(
+                    spotifyId: updated.spotifyId,
+                    localId: updated.localId,
+                    title: updated.title,
+                    artist: updated.artist,
+                    album: updated.album,
+                    albumId: updated.albumId,
+                    coverUrl: updated.coverUrl,
+                    durationMs: updated.durationMs,
+                    isDownloaded: updated.isDownloaded,
+                    isLiked: updated.isLiked,
+                    isQueued: true
+                )
+            }
+        } catch {
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
         }
-        .frame(maxWidth: .infinity)
     }
 
-    @ViewBuilder
-    private func tracksSection(_ tracks: [TrackListItem]) -> some View {
-        if !tracks.isEmpty {
-            SectionHeader(title: "Songs")
-            ForEach(tracks) { t in
-                trackRowWithMenu(t, allTracks: tracks)
-            }
-        }
-    }
+    // MARK: - Local-Row (alte TrackRow mit Context-Menu)
 
     private func trackRowWithMenu(_ t: TrackListItem, allTracks: [TrackListItem]) -> some View {
         TrackRow(
@@ -231,22 +360,6 @@ struct SearchView: View {
             pendingTrackId: $pendingTrackId,
             pendingTrackTitle: $pendingTrackTitle
         )
-    }
-
-    @ViewBuilder
-    private func artistsSection(_ artists: [ArtistListItem]) -> some View {
-        if !artists.isEmpty {
-            SectionHeader(title: "Kuenstler")
-            ForEach(artists) { a in artistRow(a) }
-        }
-    }
-
-    @ViewBuilder
-    private func albumsSection(_ albums: [AlbumListItem]) -> some View {
-        if !albums.isEmpty {
-            SectionHeader(title: "Alben")
-            ForEach(albums) { alb in albumRow(alb) }
-        }
     }
 
     private func artistRow(_ artist: ArtistListItem) -> some View {
@@ -291,6 +404,8 @@ struct SearchView: View {
         .buttonStyle(.plain)
     }
 
+    // MARK: - Search ops
+
     private func runSearch(_ q: String) async {
         isLoading = true; error = nil
         defer { isLoading = false }
@@ -299,6 +414,17 @@ struct SearchView: View {
             self.results = r
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+
+    private func runExternalSearch(_ q: String) async {
+        isLoadingExternal = true
+        defer { isLoadingExternal = false }
+        do {
+            self.externalResults = try await api.externalSearch(q: q)
+        } catch {
+            // External-Search-Error ist nicht fatal — lokal reicht
+            self.externalResults = []
         }
     }
 }
