@@ -10,20 +10,31 @@ const StartScrapeBody = z.object({
   playlistUrl: z.string().min(1).max(500),
 });
 
+const BulkScrapeBody = z.object({
+  urls: z.array(z.string().min(1).max(500)).min(1).max(50),
+});
+
+/// Normalisiert Spotify-URLs zu canonischem Format fuer den Worker.
+/// Unterstuetzt: playlists, user-liked-collection, einzelne Tracks.
+function normalizeSpotifyUrl(raw: string): string {
+  const url = raw.trim();
+  if (/open\.spotify\.com\/collection\/tracks/i.test(url)) {
+    return "spotify:collection:tracks";
+  }
+  const m = url.match(/(?:open\.spotify\.com\/playlist\/|spotify:playlist:)([a-zA-Z0-9]+)/);
+  if (m) return `spotify:playlist:${m[1]}`;
+  const t = url.match(/(?:open\.spotify\.com\/track\/|spotify:track:)([a-zA-Z0-9]+)/);
+  if (t) return `spotify:track:${t[1]}`;
+  return url;
+}
+
 export default async function adminRoutes(app: FastifyInstance) {
   app.addHook("preHandler", app.requireAuth);
 
   // Neuen Scrape-Job erstellen (queue'd)
   app.post("/admin/scrape", async (req, reply) => {
     const body = StartScrapeBody.parse(req.body);
-
-    // Normalisieren: "https://open.spotify.com/playlist/XYZ" -> "spotify:playlist:XYZ"
-    const url = body.playlistUrl.trim();
-    let normalized = url;
-    const m = url.match(/(?:open\.spotify\.com\/playlist\/|spotify:playlist:)([a-zA-Z0-9]+)/);
-    if (m) {
-      normalized = `spotify:playlist:${m[1]}`;
-    }
+    const normalized = normalizeSpotifyUrl(body.playlistUrl);
 
     const job = await prisma.scrapeJob.create({
       data: {
@@ -36,6 +47,41 @@ export default async function adminRoutes(app: FastifyInstance) {
       playlistUrl: job.playlistUrl,
       status: job.status,
       createdAt: job.createdAt,
+    });
+  });
+
+  // Bulk-Scrape: mehrere URLs auf einmal enqueue'en (dedup'd auf existing Jobs)
+  app.post("/admin/scrape/bulk", async (req, reply) => {
+    const body = BulkScrapeBody.parse(req.body);
+    const normalized = body.urls.map(normalizeSpotifyUrl);
+
+    // Dedupe: pruefe welche URLs schon aktive/queued Jobs haben
+    const existing = await prisma.scrapeJob.findMany({
+      where: {
+        playlistUrl: { in: normalized },
+        status: { in: ["QUEUED", "RUNNING", "PAUSED"] },
+      },
+      select: { playlistUrl: true },
+    });
+    const existingSet = new Set(existing.map((e) => e.playlistUrl));
+    const toCreate = normalized.filter((u) => !existingSet.has(u));
+
+    if (toCreate.length === 0) {
+      return reply.status(200).send({ enqueued: 0, skipped: body.urls.length });
+    }
+
+    const jobs = await prisma.$transaction(
+      toCreate.map((url) =>
+        prisma.scrapeJob.create({
+          data: { playlistUrl: url, createdBy: req.user.sub },
+        })
+      )
+    );
+
+    return reply.status(201).send({
+      enqueued: jobs.length,
+      skipped: body.urls.length - jobs.length,
+      jobs: jobs.map((j) => ({ id: j.id, playlistUrl: j.playlistUrl, status: j.status })),
     });
   });
 
