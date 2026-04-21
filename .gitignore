@@ -82,3 +82,7 @@ apps/backend/prisma/*.db-journal
 # MacOS VM / local artefacts
 *.vdi
 *.vmdk
+
+# Private setup docs (do not commit)
+docs/*.local
+docs/SIDESTORE-SETUP.md
