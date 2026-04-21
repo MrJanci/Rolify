@@ -86,3 +86,4 @@ apps/backend/prisma/*.db-journal
 # Private setup docs (do not commit)
 docs/*.local
 docs/SIDESTORE-SETUP.md
+.claude/

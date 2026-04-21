@@ -23,7 +23,11 @@ import structlog
 
 from music_acquirer.config import settings as acq_settings
 from music_acquirer.pipeline import process_track
-from music_acquirer.spotify_meta import fetch_playlist_tracks
+from music_acquirer.spotify_meta import (
+    fetch_playlist_tracks,
+    fetch_liked_tracks,
+    fetch_single_track,
+)
 
 log = structlog.get_logger()
 
@@ -113,7 +117,17 @@ async def run_job(conn: psycopg.AsyncConnection, job_id: str, playlist_url: str,
     job_log = log.bind(job_id=job_id, url=playlist_url)
     job_log.info("job_started", resume_from=prev_processed + prev_failed)
     try:
-        tracks = fetch_playlist_tracks(playlist_url)
+        # Dispatch nach URL-Typ
+        lower = playlist_url.lower()
+        if "collection/tracks" in lower or lower == "spotify:collection:tracks":
+            tracks = fetch_liked_tracks()
+            job_log.info("dispatched_liked_tracks")
+        elif "spotify:track:" in lower or "/track/" in lower:
+            tracks = fetch_single_track(playlist_url)
+            job_log.info("dispatched_single_track")
+        else:
+            tracks = fetch_playlist_tracks(playlist_url)
+            job_log.info("dispatched_playlist")
         total = len(tracks)
         job_log.info("tracks_fetched", total=total)
 
