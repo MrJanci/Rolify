@@ -3,8 +3,15 @@ import SwiftUI
 /// Minimales Sheet zum Erstellen einer neuen Playlist.
 struct CreatePlaylistSheet: View {
     let onCreated: (PlaylistSummary) -> Void
-    var startAsCollab: Bool = false
+    let startAsCollab: Bool
     @Environment(\.dismiss) var dismiss
+
+    // Expliziter init damit trailing-closure zuverlaessig onCreated matcht
+    // (DismissAction aus @Environment wuerde sonst die synthesized init-signature verwirren).
+    init(startAsCollab: Bool = false, onCreated: @escaping (PlaylistSummary) -> Void) {
+        self.startAsCollab = startAsCollab
+        self.onCreated = onCreated
+    }
 
     @State private var name = ""
     @State private var isPublic = false
