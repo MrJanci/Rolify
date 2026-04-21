@@ -79,14 +79,43 @@ export default async function adminRoutes(app: FastifyInstance) {
     };
   });
 
-  // Job stornieren (nur wenn noch queued)
+  // Job stornieren (queued oder paused)
   app.delete<{ Params: { id: string } }>("/admin/scrape/jobs/:id", async (req, reply) => {
     const job = await prisma.scrapeJob.findUnique({ where: { id: req.params.id } });
     if (!job) return reply.status(404).send({ error: "not_found" });
-    if (job.status !== "QUEUED") {
-      return reply.status(409).send({ error: "cannot_cancel", message: "job is not queued" });
+    if (job.status !== "QUEUED" && job.status !== "PAUSED") {
+      return reply.status(409).send({ error: "cannot_cancel", message: `job is ${job.status.toLowerCase()}` });
     }
     await prisma.scrapeJob.delete({ where: { id: job.id } });
     return reply.status(204).send();
+  });
+
+  // Job pausieren (nur wenn RUNNING oder QUEUED - worker checkt state vor jedem track)
+  app.post<{ Params: { id: string } }>("/admin/scrape/jobs/:id/pause", async (req, reply) => {
+    const job = await prisma.scrapeJob.findUnique({ where: { id: req.params.id } });
+    if (!job) return reply.status(404).send({ error: "not_found" });
+    if (job.status !== "RUNNING" && job.status !== "QUEUED") {
+      return reply.status(409).send({ error: "cannot_pause", message: `job is ${job.status.toLowerCase()}` });
+    }
+    const updated = await prisma.scrapeJob.update({
+      where: { id: job.id },
+      data: { status: "PAUSED" },
+    });
+    return { status: updated.status };
+  });
+
+  // Job wieder aufnehmen
+  app.post<{ Params: { id: string } }>("/admin/scrape/jobs/:id/resume", async (req, reply) => {
+    const job = await prisma.scrapeJob.findUnique({ where: { id: req.params.id } });
+    if (!job) return reply.status(404).send({ error: "not_found" });
+    if (job.status !== "PAUSED") {
+      return reply.status(409).send({ error: "cannot_resume", message: `job is ${job.status.toLowerCase()}` });
+    }
+    // Zurueck in Queue stellen (Worker pickt es als RUNNING wieder auf)
+    const updated = await prisma.scrapeJob.update({
+      where: { id: job.id },
+      data: { status: "QUEUED" },
+    });
+    return { status: updated.status };
   });
 }

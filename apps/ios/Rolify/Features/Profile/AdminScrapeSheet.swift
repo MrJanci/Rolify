@@ -141,7 +141,7 @@ struct AdminScrapeSheet: View {
                     .foregroundStyle(DS.textSecondary)
                     .lineLimit(1)
             }
-            if job.status == "RUNNING" || job.status == "DONE" {
+            if job.status == "RUNNING" || job.status == "DONE" || job.status == "PAUSED" {
                 progressBar(for: job)
                 Text("\(job.processedTracks)/\(job.totalTracks) Tracks · \(job.failedTracks) failed")
                     .font(DS.Font.footnote)
@@ -157,7 +157,21 @@ struct AdminScrapeSheet: View {
         .padding(.horizontal, DS.xl)
         .padding(.vertical, DS.m)
         .contextMenu {
-            if job.status == "QUEUED" {
+            if job.status == "RUNNING" || job.status == "QUEUED" {
+                Button {
+                    Task { try? await api.pauseScrapeJob(id: job.id); await load() }
+                } label: {
+                    Label("Pausieren", systemImage: "pause.circle")
+                }
+            }
+            if job.status == "PAUSED" {
+                Button {
+                    Task { try? await api.resumeScrapeJob(id: job.id); await load() }
+                } label: {
+                    Label("Fortsetzen", systemImage: "play.circle")
+                }
+            }
+            if job.status == "QUEUED" || job.status == "PAUSED" {
                 Button(role: .destructive) {
                     Task { try? await api.cancelScrapeJob(id: job.id); await load() }
                 } label: {
@@ -185,6 +199,7 @@ struct AdminScrapeSheet: View {
             switch status {
             case "QUEUED": return ("Wartet", DS.textSecondary)
             case "RUNNING": return ("Laeuft", DS.accent)
+            case "PAUSED": return ("Pausiert", Color(red: 0.96, green: 0.62, blue: 0.04))
             case "DONE": return ("Fertig", Color(red: 0.2, green: 0.76, blue: 0.45))
             case "FAILED": return ("Fehler", .red)
             default: return (status, DS.textSecondary)
@@ -239,7 +254,7 @@ struct AdminScrapeSheet: View {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(3))
                 if Task.isCancelled { return }
-                let hasActive = jobs.contains { $0.status == "QUEUED" || $0.status == "RUNNING" }
+                let hasActive = jobs.contains { $0.status == "QUEUED" || $0.status == "RUNNING" || $0.status == "PAUSED" }
                 if hasActive {
                     await load()
                 }

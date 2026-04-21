@@ -314,6 +314,16 @@ final class API {
         try await requestVoid("/admin/scrape/jobs/\(id)", method: "DELETE")
     }
 
+    func pauseScrapeJob(id: String) async throws {
+        struct Out: Decodable { let status: String }
+        let _: Out = try await request("/admin/scrape/jobs/\(id)/pause", method: "POST")
+    }
+
+    func resumeScrapeJob(id: String) async throws {
+        struct Out: Decodable { let status: String }
+        let _: Out = try await request("/admin/scrape/jobs/\(id)/resume", method: "POST")
+    }
+
     // MARK: Request-raw helpers
 
     private struct AddedResponse: Decodable { let added: Int }

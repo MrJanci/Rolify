@@ -156,6 +156,23 @@ export default async function playlistRoutes(app: FastifyInstance) {
     if (!existing || existing.userId !== req.user.sub) {
       return reply.status(404).send({ error: "not_found" });
     }
+
+    // Validiere: nur Track-IDs die wirklich existieren, sonst FK-Violation
+    const validTracks = await prisma.track.findMany({
+      where: { id: { in: trackIds } },
+      select: { id: true },
+    });
+    const validIds = new Set(validTracks.map((t) => t.id));
+    const filtered = trackIds.filter((id) => validIds.has(id));
+    const skippedInvalid = trackIds.length - filtered.length;
+
+    if (filtered.length === 0) {
+      return reply.status(400).send({
+        error: "no_valid_tracks",
+        message: `Alle ${skippedInvalid} Tracks existieren nicht mehr in der Datenbank`,
+      });
+    }
+
     // Max position ermitteln
     const maxPos = await prisma.playlistTrack.aggregate({
       where: { playlistId: req.params.id },
@@ -164,11 +181,11 @@ export default async function playlistRoutes(app: FastifyInstance) {
     const startPos = (maxPos._max.position ?? -1) + 1;
 
     await prisma.$transaction(
-      trackIds.map((trackId, i) =>
+      filtered.map((trackId, i) =>
         prisma.playlistTrack.upsert({
           where: { playlistId_trackId: { playlistId: req.params.id, trackId } },
           create: { playlistId: req.params.id, trackId, position: startPos + i },
-          update: {}, // wenn schon drin, position nicht aendern
+          update: {}, // wenn schon drin, position nicht aendern (Dedupe)
         })
       )
     );
@@ -176,7 +193,10 @@ export default async function playlistRoutes(app: FastifyInstance) {
       where: { id: req.params.id },
       data: { updatedAt: new Date() },
     });
-    return reply.status(201).send({ added: trackIds.length });
+    return reply.status(201).send({
+      added: filtered.length,
+      skippedInvalid,
+    });
   });
 
   // Track aus Playlist entfernen
