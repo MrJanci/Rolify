@@ -6,6 +6,7 @@ struct AlbumDetailView: View {
     @State private var detail: AlbumDetail?
     @State private var isLoading = true
     @State private var error: String?
+    @State private var isSaved = false
     @State private var api = API.shared
     @State private var player = Player.shared
 
@@ -22,23 +23,33 @@ struct AlbumDetailView: View {
                             coverUrl: detail.coverUrl,
                             baseColor: Color(red: 0.22, green: 0.35, blue: 0.58)
                         ) {
-                            Button {
-                                guard let first = detail.tracks.first else { return }
-                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                let q = detail.tracks.map { QueueTrack($0) }
-                                Task { await player.play(queue: q, startingAt: first.id) }
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "play.fill").font(.system(size: 16, weight: .black))
-                                    Text("Abspielen").font(.system(size: 15, weight: .bold))
+                            HStack(spacing: DS.m) {
+                                Button { Task { await toggleSave() } } label: {
+                                    Image(systemName: isSaved ? "checkmark.circle.fill" : "plus.circle")
+                                        .font(.system(size: 28, weight: .semibold))
+                                        .foregroundStyle(isSaved ? DS.accent : DS.textSecondary)
+                                        .contentTransition(.symbolEffect(.replace))
                                 }
-                                .foregroundStyle(.black)
-                                .padding(.horizontal, 32)
-                                .frame(height: 48)
-                                .background(DS.accent)
-                                .clipShape(Capsule())
+                                .buttonStyle(.plain)
+
+                                Button {
+                                    guard let first = detail.tracks.first else { return }
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    let q = detail.tracks.map { QueueTrack($0) }
+                                    Task { await player.play(queue: q, startingAt: first.id) }
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "play.fill").font(.system(size: 16, weight: .black))
+                                        Text("Abspielen").font(.system(size: 15, weight: .bold))
+                                    }
+                                    .foregroundStyle(.black)
+                                    .padding(.horizontal, 32)
+                                    .frame(height: 48)
+                                    .background(DS.accent)
+                                    .clipShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
 
                         Divider().background(DS.divider)
@@ -94,8 +105,21 @@ struct AlbumDetailView: View {
         defer { isLoading = false }
         do {
             self.detail = try await api.albumDetail(id: albumId)
+            self.isSaved = (try? await api.isAlbumSaved(albumId)) ?? false
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+
+    private func toggleSave() async {
+        let wasSaved = isSaved
+        isSaved.toggle()  // optimistic
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        do {
+            if wasSaved { try await api.unsaveAlbum(albumId) }
+            else { try await api.saveAlbum(albumId) }
+        } catch {
+            await MainActor.run { isSaved = wasSaved }
         }
     }
 }

@@ -89,4 +89,85 @@ export default async function browseRoutes(app: FastifyInstance) {
     // Legacy "tracks" Feld fuer backwards-compat (v0.8 client nutzt das noch)
     return { shelves, tracks: shelves[0]?.tracks ?? [] };
   });
+
+  /// POST /browse/mixed — generiert Mix-Playlist aus Liked-Tracks + ihre Artists.
+  /// Algo (v1 simple): nimm User-Likes als Seed, ziehe Tracks von gleichen Artists + Album-Sisters.
+  /// Erstellt eine neue Playlist mit isMixed=true.
+  app.post("/browse/mixed", async (req, reply) => {
+    const userId = req.user.sub;
+
+    // Seeds: liked Tracks (oder Fallback: recent listening - nicht getrackt, also: recent Tracks)
+    const likedTracks = await prisma.libraryTrack.findMany({
+      where: { userId },
+      select: { trackId: true, track: { select: { artistId: true } } },
+      take: 20,
+      orderBy: { savedAt: "desc" },
+    });
+
+    let seedArtistIds: string[] = [];
+    if (likedTracks.length > 0) {
+      seedArtistIds = [...new Set(likedTracks.map((l) => l.track.artistId))];
+    } else {
+      // Fallback: alle Saved-Artists
+      const saved = await prisma.savedArtist.findMany({
+        where: { userId },
+        select: { artistId: true },
+        take: 10,
+      });
+      seedArtistIds = saved.map((s) => s.artistId);
+    }
+
+    if (seedArtistIds.length === 0) {
+      return reply.status(400).send({ error: "no_seeds", message: "Like ein paar Tracks dann klappt das." });
+    }
+
+    // Bau Kandidaten: Tracks der Seed-Artists die der User nicht gelikt hat (sonst boring)
+    const likedTrackIds = new Set(likedTracks.map((l) => l.trackId));
+    const candidates = await prisma.track.findMany({
+      where: {
+        artistId: { in: seedArtistIds },
+        id: { notIn: [...likedTrackIds] },
+      },
+      select: { id: true },
+      take: 60,
+    });
+
+    // Shuffle + nimm 30
+    for (let i = candidates.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+    }
+    const chosen = candidates.slice(0, 30);
+    if (chosen.length === 0) {
+      return reply.status(400).send({ error: "no_candidates" });
+    }
+
+    // Erstelle Mixed-Playlist
+    const playlist = await prisma.playlist.create({
+      data: {
+        userId,
+        name: "Dein Mix vom Tag",
+        description: "Algorithmisch aus deinen Likes generiert.",
+        isMixed: true,
+        isPublic: false,
+      },
+    });
+    await prisma.$transaction(
+      chosen.map((t, i) =>
+        prisma.playlistTrack.create({
+          data: { playlistId: playlist.id, trackId: t.id, position: i },
+        })
+      )
+    );
+
+    return reply.status(201).send({
+      id: playlist.id,
+      name: playlist.name,
+      description: playlist.description,
+      coverUrl: "",
+      isPublic: false,
+      isMixed: true,
+      trackCount: chosen.length,
+    });
+  });
 }

@@ -7,8 +7,10 @@ enum Tab: Hashable {
 struct AppRoot: View {
     @State private var api = API.shared
     @State private var player = Player.shared
+    @State private var jam = JamOrchestrator.shared
     @State private var selectedTab: Tab = .library
     @State private var showNowPlaying = false
+    @State private var showJam = false
 
     var body: some View {
         Group {
@@ -42,18 +44,57 @@ struct AppRoot: View {
             }
             .tint(DS.accent)
 
-            if player.currentTrack != nil {
-                MiniPlayer {
-                    showNowPlaying = true
+            VStack(spacing: 6) {
+                // Jam-Banner wenn aktiv (oberhalb MiniPlayer)
+                if jam.isConnected, let code = jam.activeCode {
+                    jamBanner(code: code)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
-                .padding(.bottom, 49)   // sits directly above TabBar
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+
+                if player.currentTrack != nil {
+                    MiniPlayer { showNowPlaying = true }
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
+            .padding(.bottom, 49)
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: player.currentTrack?.trackId)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: jam.isConnected)
         .sheet(isPresented: $showNowPlaying) {
             NowPlayingSheet()
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showJam) {
+            JamSheet()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+    }
+
+    private func jamBanner(code: String) -> some View {
+        Button { showJam = true } label: {
+            HStack(spacing: DS.s) {
+                Image(systemName: "wifi")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(DS.accent)
+                Text("Jam aktiv · \(code)")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(DS.textPrimary)
+                Text("\(jam.client.participants.count) dabei")
+                    .font(DS.Font.footnote)
+                    .foregroundStyle(DS.textSecondary)
+                Spacer()
+                Image(systemName: "chevron.up")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(DS.textSecondary)
+            }
+            .padding(.horizontal, DS.m)
+            .frame(height: 40)
+            .background(DS.bgElevated)
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(DS.accent.opacity(0.3), lineWidth: 1))
+            .padding(.horizontal, DS.m)
+        }
+        .buttonStyle(.plain)
     }
 }

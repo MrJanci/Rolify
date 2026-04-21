@@ -24,13 +24,15 @@ enum LibrarySort: String, CaseIterable, Identifiable {
 
 struct LibraryView: View {
     @State private var playlists: [PlaylistSummary] = []
+    @State private var likedCount: Int = 0
+    @State private var savedAlbums: [API.SavedAlbumsResponse.Item] = []
+    @State private var savedArtists: [API.SavedArtistsResponse.Item] = []
     @State private var isLoading = true
     @State private var error: String?
     @State private var showCreateSheet = false
     @State private var showProfileSheet = false
     @State private var filter: LibraryFilter = .playlists
     @State private var sort: LibrarySort = .recent
-    @State private var searchText = ""
     @State private var api = API.shared
 
     var body: some View {
@@ -40,7 +42,10 @@ struct LibraryView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(for: PlaylistRoute.self) { r in
-            switch r { case let .detail(id, name): PlaylistDetailView(playlistId: id, initialName: name) }
+            switch r {
+            case let .detail(id, name): PlaylistDetailView(playlistId: id, initialName: name)
+            case .likedSongs: LikedSongsView()
+            }
         }
         .navigationDestination(for: LibraryRoute.self) { r in
             switch r {
@@ -69,9 +74,12 @@ struct LibraryView: View {
             }
         }
         .sheet(isPresented: $showCreateSheet) {
-            CreateSheet { created in playlists.insert(created, at: 0) }
-                .presentationDetents([.height(420)])
-                .presentationDragIndicator(.visible)
+            CreateSheet(
+                onPlaylistCreated: { created in playlists.insert(created, at: 0) },
+                onMixedCreated: { created in playlists.insert(created, at: 0) }
+            )
+            .presentationDetents([.height(460)])
+            .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showProfileSheet) {
             ProfileSheet()
@@ -83,7 +91,7 @@ struct LibraryView: View {
 
     @ViewBuilder
     private var content: some View {
-        if isLoading && playlists.isEmpty {
+        if isLoading && playlists.isEmpty && savedAlbums.isEmpty && savedArtists.isEmpty {
             ProgressView().tint(DS.accent).frame(maxHeight: .infinity)
         } else if let error {
             ErrorView(message: error) { Task { await load() } }
@@ -163,14 +171,21 @@ struct LibraryView: View {
     private var listView: some View {
         switch filter {
         case .playlists: playlistList
-        case .albums: emptyPlaceholder(title: "Alben folgen bald", message: "Saved-Alben-API kommt in v0.14")
-        case .artists: emptyPlaceholder(title: "Kuenstler folgen bald", message: "Saved-Artists-API kommt in v0.14")
+        case .albums: albumsList
+        case .artists: artistsList
         }
     }
 
     private var playlistList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
+                // Liked-Songs Pseudo-Playlist (ganz oben wie Spotify)
+                NavigationLink(value: PlaylistRoute.likedSongs) {
+                    likedSongsRow
+                }
+                .buttonStyle(.plain)
+                Divider().background(DS.divider).padding(.leading, 88)
+
                 ForEach(sortedPlaylists) { p in
                     NavigationLink(value: PlaylistRoute.detail(p.id, p.name)) {
                         playlistRow(p)
@@ -183,16 +198,22 @@ struct LibraryView: View {
         .refreshable { await load() }
     }
 
-    private func playlistRow(_ p: PlaylistSummary) -> some View {
+    private var likedSongsRow: some View {
         HStack(spacing: DS.m) {
-            CoverImage(
-                url: p.coverUrl.isEmpty ? nil : p.coverUrl,
-                cornerRadius: DS.radiusS,
-                placeholder: "music.note.list"
-            )
+            ZStack {
+                LinearGradient(
+                    colors: [Color(red: 0.55, green: 0.20, blue: 0.95), DS.accentDeep],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                )
+                Image(systemName: "heart.fill")
+                    .font(.system(size: 20, weight: .black))
+                    .foregroundStyle(.white)
+            }
             .frame(width: 56, height: 56)
+            .clipShape(RoundedRectangle(cornerRadius: DS.radiusS))
+
             VStack(alignment: .leading, spacing: 2) {
-                Text(p.name)
+                Text("Gelikte Songs")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(DS.textPrimary)
                     .lineLimit(1)
@@ -200,7 +221,7 @@ struct LibraryView: View {
                     Image(systemName: "pin.fill")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(DS.accent)
-                    Text("Playlist · \(p.trackCount) Tracks")
+                    Text("Playlist · \(likedCount) Tracks")
                         .font(.system(size: 13))
                         .foregroundStyle(DS.textSecondary)
                 }
@@ -210,6 +231,116 @@ struct LibraryView: View {
         .padding(.horizontal, DS.l)
         .padding(.vertical, DS.s)
         .contentShape(Rectangle())
+    }
+
+    private func playlistRow(_ p: PlaylistSummary) -> some View {
+        HStack(spacing: DS.m) {
+            CoverImage(
+                url: p.coverUrl.isEmpty ? nil : p.coverUrl,
+                cornerRadius: DS.radiusS,
+                placeholder: (p.isMixed ?? false) ? "sparkles" : "music.note.list"
+            )
+            .frame(width: 56, height: 56)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(p.name)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(DS.textPrimary)
+                        .lineLimit(1)
+                    if p.isCollaborative ?? false {
+                        Image(systemName: "person.2.fill").font(.system(size: 10, weight: .bold)).foregroundStyle(DS.accent)
+                    }
+                    if p.isMixed ?? false {
+                        Image(systemName: "sparkles").font(.system(size: 10, weight: .bold)).foregroundStyle(DS.accent)
+                    }
+                }
+                Text(subtitle(for: p))
+                    .font(.system(size: 13))
+                    .foregroundStyle(DS.textSecondary)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, DS.l)
+        .padding(.vertical, DS.s)
+        .contentShape(Rectangle())
+    }
+
+    private func subtitle(for p: PlaylistSummary) -> String {
+        var parts = ["Playlist"]
+        if p.isCollaborative ?? false { parts.append("Kollab") }
+        if p.isMixed ?? false { parts.append("Mix") }
+        if !(p.isOwned ?? true) { parts.append("geteilt") }
+        return parts.joined(separator: " · ") + " · \(p.trackCount) Tracks"
+    }
+
+    // MARK: - Saved Albums
+
+    private var albumsList: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if savedAlbums.isEmpty {
+                    emptyPlaceholder(title: "Keine gespeicherten Alben", message: "Speichere Alben ueber das + im Album-Screen")
+                } else {
+                    ForEach(savedAlbums) { a in
+                        NavigationLink(value: LibraryRoute.album(a.id)) {
+                            HStack(spacing: DS.m) {
+                                CoverImage(url: a.coverUrl, cornerRadius: DS.radiusS)
+                                    .frame(width: 56, height: 56)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(a.title)
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(DS.textPrimary)
+                                        .lineLimit(1)
+                                    Text("Album · \(a.artist)")
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(DS.textSecondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                            }
+                            .padding(.horizontal, DS.l)
+                            .padding(.vertical, DS.s)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                Spacer().frame(height: 140)
+            }
+        }
+        .refreshable { await load() }
+    }
+
+    // MARK: - Saved Artists
+
+    private var artistsList: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                if savedArtists.isEmpty {
+                    emptyPlaceholder(title: "Noch keine Kuenstler", message: "Folge einem Kuenstler ueber den Button im Artist-Screen")
+                } else {
+                    ForEach(savedArtists) { a in
+                        NavigationLink(value: LibraryRoute.artist(a.id)) {
+                            HStack(spacing: DS.m) {
+                                CoverImage(url: a.imageUrl, cornerRadius: 28, placeholder: "person.fill")
+                                    .frame(width: 56, height: 56)
+                                Text(a.name)
+                                    .font(DS.Font.bodyLarge)
+                                    .foregroundStyle(DS.textPrimary)
+                                Spacer()
+                                Text("Kuenstler")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(DS.textSecondary)
+                            }
+                            .padding(.horizontal, DS.l)
+                            .padding(.vertical, DS.s)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                Spacer().frame(height: 140)
+            }
+        }
+        .refreshable { await load() }
     }
 
     private func emptyPlaceholder(title: String, message: String) -> some View {
@@ -224,6 +355,8 @@ struct LibraryView: View {
             Text(message)
                 .font(DS.Font.caption)
                 .foregroundStyle(DS.textSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, DS.xxl)
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -235,18 +368,33 @@ struct LibraryView: View {
         switch sort {
         case .recent: return playlists
         case .name: return playlists.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        case .creator: return playlists   // creator-Info fehlt im Summary — fallback auf name
+        case .creator: return playlists
         }
     }
 
     private func load() async {
         isLoading = true; error = nil
         defer { isLoading = false }
-        do { self.playlists = try await api.myPlaylists() } catch { self.error = error.localizedDescription }
+        async let pl = api.myPlaylists()
+        async let liked = api.likedTracks()
+        async let albs = api.savedAlbums()
+        async let arts = api.savedArtists()
+        do {
+            self.playlists = try await pl
+            self.likedCount = (try await liked).count
+            self.savedAlbums = try await albs
+            self.savedArtists = try await arts
+        } catch {
+            self.error = error.localizedDescription
+        }
     }
 }
 
-enum PlaylistRoute: Hashable { case detail(String, String?) }
+enum PlaylistRoute: Hashable {
+    case detail(String, String?)
+    case likedSongs
+}
+
 enum LibraryRoute: Hashable {
     case album(String)
     case artist(String)
