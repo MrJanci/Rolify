@@ -1,71 +1,69 @@
 import SwiftUI
 
-/// Library zeigt Tracks + Playlists. In Chunk 12 werden das separate Tabs;
-/// fuer jetzt ist's eine Single-Page mit zwei Sections.
+/// Spotify-style "Your Library" Screen:
+///   [Avatar] Deine Bibliothek                     [Search] [+]
+///   [Playlists] [Alben] [Kuenstler] [Heruntergeladen]
+///   [sort-icon] Zuletzt ...................... [grid-toggle]
+///   [playlist-row 1]
+///   [playlist-row 2]
+///   ...
 struct LibraryView: View {
     @State private var tracks: [TrackListItem] = []
     @State private var playlists: [PlaylistSummary] = []
     @State private var isLoading = true
     @State private var error: String?
+    @State private var selectedFilter = ""
     @State private var showCreateSheet = false
+    @State private var showCreatePlaylist = false
+    @State private var showProfile = false
     @State private var showAddToPlaylist = false
     @State private var pendingTrackId = ""
     @State private var pendingTrackTitle = ""
+    @State private var isGridMode = false
     @State private var api = API.shared
     @State private var player = Player.shared
+    @State private var profile: UserProfile?
+
+    private let filterOptions = ["Playlists", "Alben", "Kuenstler", "Heruntergeladen"]
 
     var body: some View {
         ZStack {
             DS.bg.ignoresSafeArea()
 
-            if isLoading {
+            if isLoading && playlists.isEmpty && tracks.isEmpty {
                 ProgressView().tint(DS.accent).frame(maxHeight: .infinity)
             } else if let error {
                 ErrorView(message: error) { Task { await load() } }
-            } else if tracks.isEmpty && playlists.isEmpty {
-                emptyState
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        if !playlists.isEmpty {
-                            SectionHeader(title: "Deine Playlists")
-                            ForEach(playlists) { p in
-                                NavigationLink(value: PlaylistRoute.detail(p.id, p.name)) {
-                                    playlistRow(p)
-                                }
-                                .buttonStyle(.plain)
+                    LazyVStack(alignment: .leading, spacing: 0, pinnedViews: []) {
+                        topHeader
+                        filterPills
+                            .padding(.top, DS.m)
+                        sortToggleRow
+                            .padding(.vertical, DS.m)
+
+                        ForEach(displayedPlaylists) { p in
+                            NavigationLink(value: PlaylistRoute.detail(p.id, p.name)) {
+                                playlistRowContent(p)
                             }
+                            .buttonStyle(.plain)
                         }
 
-                        SectionHeader(title: "Alle Tracks")
-                        ForEach(tracks) { t in
-                            TrackRow(
-                                track: t,
-                                isCurrent: player.currentTrack?.trackId == t.id,
-                                isPlaying: player.isPlaying && player.currentTrack?.trackId == t.id
-                            ) {
-                                let qtracks = tracks.map { QueueTrack($0) }
-                                Task { await player.play(queue: qtracks, startingAt: t.id) }
-                            }
-                            .rolifyTrackContextMenu(
-                                queueTrack: QueueTrack(t),
-                                albumId: t.albumId,
-                                showAddToPlaylist: $showAddToPlaylist,
-                                pendingTrackId: $pendingTrackId,
-                                pendingTrackTitle: $pendingTrackTitle
-                            )
-                            Divider().background(DS.divider).padding(.leading, 88)
+                        if displayedPlaylists.isEmpty && tracks.isEmpty {
+                            emptyState
                         }
-                        Spacer().frame(height: 120)
+
+                        Spacer().frame(height: 140)
                     }
                 }
                 .refreshable { await load() }
             }
         }
+        .navigationBarHidden(true)
         .navigationDestination(for: PlaylistRoute.self) { route in
             switch route {
-            case let .detail(id, name):
-                PlaylistDetailView(playlistId: id, initialName: name)
+            case let .detail(id, name): PlaylistDetailView(playlistId: id, initialName: name)
             }
         }
         .navigationDestination(for: LibraryRoute.self) { route in
@@ -74,27 +72,15 @@ struct LibraryView: View {
             case let .artist(id): ArtistDetailView(artistId: id)
             }
         }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Bibliothek")
-                        .font(DS.Font.headline)
-                        .foregroundStyle(DS.textPrimary)
-                    Text("\(tracks.count) Tracks · \(playlists.count) Playlists")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(DS.textSecondary)
-                }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { showCreateSheet = true } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(DS.textPrimary)
-                }
-            }
+        .sheet(isPresented: $showProfile) {
+            ProfileSheet().presentationDetents([.large])
         }
         .sheet(isPresented: $showCreateSheet) {
+            CreateSheet(showCreatePlaylist: $showCreatePlaylist)
+                .presentationDetents([.height(540)])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showCreatePlaylist) {
             CreatePlaylistSheet { created in
                 playlists.insert(created, at: 0)
             }
@@ -105,42 +91,143 @@ struct LibraryView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
-        .task { if tracks.isEmpty { await load() } }
+        .task {
+            await loadProfile()
+            if playlists.isEmpty && tracks.isEmpty { await load() }
+        }
     }
 
-    private func playlistRow(_ p: PlaylistSummary) -> some View {
+    // MARK: Header
+
+    private var topHeader: some View {
         HStack(spacing: DS.m) {
-            CoverImage(url: p.coverUrl.isEmpty ? nil : p.coverUrl, cornerRadius: DS.radiusS, placeholder: "music.note.list")
-                .frame(width: 56, height: 56)
+            AvatarButton(avatarUrl: profile?.avatarUrl, displayName: profile?.displayName ?? "U") {
+                showProfile = true
+            }
+            Text("Deine Bibliothek")
+                .font(.system(size: 24, weight: .black))
+                .foregroundStyle(DS.textPrimary)
+
+            Spacer()
+
+            Button { } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(DS.textPrimary)
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                showCreateSheet = true
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(DS.textPrimary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, DS.l)
+        .padding(.top, DS.s)
+    }
+
+    private var filterPills: some View {
+        TopBarPills(options: filterOptions, selection: $selectedFilter, allowDeselect: true)
+    }
+
+    private var sortToggleRow: some View {
+        HStack {
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            } label: {
+                HStack(spacing: DS.xs) {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("Zuletzt")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .foregroundStyle(DS.textPrimary)
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                isGridMode.toggle()
+            } label: {
+                Image(systemName: isGridMode ? "list.bullet" : "square.grid.2x2")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(DS.textPrimary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, DS.l)
+    }
+
+    // MARK: Rows
+
+    private var displayedPlaylists: [PlaylistSummary] {
+        if selectedFilter.isEmpty || selectedFilter == "Playlists" || selectedFilter == "Heruntergeladen" {
+            return playlists
+        }
+        return []
+    }
+
+    private func playlistRowContent(_ p: PlaylistSummary) -> some View {
+        HStack(spacing: DS.m) {
+            CoverImage(
+                url: p.coverUrl.isEmpty ? nil : p.coverUrl,
+                cornerRadius: DS.radiusS,
+                placeholder: "music.note.list"
+            )
+            .frame(width: 56, height: 56)
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(p.name)
-                    .font(DS.Font.bodyLarge)
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(DS.textPrimary)
                     .lineLimit(1)
-                Text("\(p.trackCount) Tracks")
-                    .font(DS.Font.caption)
-                    .foregroundStyle(DS.textSecondary)
+
+                HStack(spacing: 4) {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(DS.accent)
+                    Text("Playlist")
+                        .font(.system(size: 13))
+                        .foregroundStyle(DS.textSecondary)
+                    if p.trackCount > 0 {
+                        Text("·")
+                            .foregroundStyle(DS.textSecondary)
+                        Text("\(p.trackCount) Tracks")
+                            .font(.system(size: 13))
+                            .foregroundStyle(DS.textSecondary)
+                    }
+                }
             }
+
             Spacer()
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(DS.textTertiary)
         }
-        .padding(.horizontal, DS.xl)
+        .padding(.horizontal, DS.l)
         .padding(.vertical, DS.s)
     }
 
     private var emptyState: some View {
         VStack(spacing: DS.m) {
-            Image(systemName: "music.note.list")
-                .font(.system(size: 44))
+            Spacer().frame(height: 80)
+            Image(systemName: "books.vertical")
+                .font(.system(size: 40))
                 .foregroundStyle(DS.textSecondary)
-            Text("Keine Tracks, keine Playlists")
-                .font(DS.Font.body)
+            Text("Noch nichts hier")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(DS.textPrimary)
+            Text("Erstelle deine erste Playlist")
+                .font(.system(size: 14))
                 .foregroundStyle(DS.textSecondary)
         }
-        .frame(maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
     }
+
+    // MARK: Data
 
     private func load() async {
         isLoading = true; error = nil
@@ -155,6 +242,11 @@ struct LibraryView: View {
             self.error = error.localizedDescription
         }
     }
+
+    private func loadProfile() async {
+        if profile != nil { return }
+        do { self.profile = try await api.me() } catch { }
+    }
 }
 
 enum PlaylistRoute: Hashable {
@@ -164,74 +256,4 @@ enum PlaylistRoute: Hashable {
 enum LibraryRoute: Hashable {
     case album(String)
     case artist(String)
-}
-
-// MARK: Create Playlist sheet
-
-struct CreatePlaylistSheet: View {
-    let onCreated: (PlaylistSummary) -> Void
-    @Environment(\.dismiss) var dismiss
-
-    @State private var name = ""
-    @State private var isLoading = false
-    @State private var error: String?
-    @State private var api = API.shared
-
-    var body: some View {
-        ZStack {
-            DS.bg.ignoresSafeArea()
-            VStack(spacing: DS.l) {
-                Text("Neue Playlist")
-                    .font(DS.Font.title)
-                    .foregroundStyle(DS.textPrimary)
-                    .padding(.top, DS.xl)
-
-                TextField("Name", text: $name)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 16))
-                    .foregroundStyle(DS.textPrimary)
-                    .padding(.horizontal, DS.l)
-                    .frame(height: 52)
-                    .background(DS.bgElevated)
-                    .clipShape(RoundedRectangle(cornerRadius: DS.radiusL, style: .continuous))
-                    .padding(.horizontal, DS.xl)
-
-                if let error {
-                    Text(error)
-                        .font(DS.Font.caption)
-                        .foregroundStyle(.red)
-                }
-
-                Button {
-                    Task { await create() }
-                } label: {
-                    HStack {
-                        if isLoading { ProgressView().tint(.black).scaleEffect(0.85) }
-                        Text("Erstellen").font(.system(size: 16, weight: .bold))
-                    }
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(DS.accent)
-                    .clipShape(Capsule())
-                }
-                .disabled(isLoading || name.trimmingCharacters(in: .whitespaces).isEmpty)
-                .padding(.horizontal, DS.xl)
-
-                Spacer()
-            }
-        }
-    }
-
-    private func create() async {
-        isLoading = true; error = nil
-        defer { isLoading = false }
-        do {
-            let p = try await api.createPlaylist(name: name.trimmingCharacters(in: .whitespaces))
-            onCreated(p)
-            dismiss()
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
 }
