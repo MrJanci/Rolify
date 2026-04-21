@@ -1,5 +1,21 @@
 import SwiftUI
 
+/// Live-progress fuer einen laufenden External-Download.
+/// Gehalten in SearchView pro Spotify-ID waehrend der scrape job laeuft.
+struct ActiveDownload: Hashable {
+    let spotifyId: String
+    let jobId: String
+    var status: String  // QUEUED / RUNNING / DONE / FAILED
+    var processed: Int
+    var total: Int
+
+    /// 0..1 fuer Progress-Bar. Indeterminate wenn total == 0.
+    var progress: Double? {
+        guard total > 0 else { return nil }
+        return min(1.0, Double(processed) / Double(total))
+    }
+}
+
 struct SearchView: View {
     @State private var query = ""
     @State private var results: SearchResponse?
@@ -12,7 +28,8 @@ struct SearchView: View {
     @State private var pendingTrackId = ""
     @State private var pendingTrackTitle = ""
     @State private var showProfileSheet = false
-    @State private var downloadingIds: Set<String> = []
+    @State private var activeDownloads: [String: ActiveDownload] = [:]
+    @State private var pollTasks: [String: Task<Void, Never>] = [:]
     @State private var api = API.shared
     @State private var player = Player.shared
 
@@ -84,6 +101,11 @@ struct SearchView: View {
             ProfileSheet()
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
+        }
+        .onDisappear {
+            // Running polls aufraeumen
+            for (_, task) in pollTasks { task.cancel() }
+            pollTasks.removeAll()
         }
     }
 
@@ -235,72 +257,82 @@ struct SearchView: View {
 
     @ViewBuilder
     private func externalRow(_ h: API.ExternalSearchResponse.Hit) -> some View {
-        let downloading = downloadingIds.contains(h.spotifyId) || h.isQueued
+        let active = activeDownloads[h.spotifyId]
+        let isQueued = active != nil || (h.isQueued && !h.isDownloaded)
+
         Button {
             UIImpactFeedbackGenerator(style: .soft).impactOccurred()
             if h.isDownloaded, let localId = h.localId {
-                // Direkt abspielen
                 let q = [QueueTrack(id: localId, title: h.title, artist: h.artist, coverUrl: h.coverUrl, durationMs: h.durationMs)]
                 Task { await player.play(queue: q, startingAt: localId) }
-            } else if !downloading {
-                Task { await triggerDownload(h.spotifyId) }
+            } else if !isQueued {
+                Task { await triggerDownload(h.spotifyId, addToLiked: true) }
             }
         } label: {
-            HStack(spacing: DS.m) {
-                CoverImage(url: h.coverUrl, cornerRadius: DS.radiusS)
-                    .frame(width: 44, height: 44)
-                    .overlay(alignment: .center) {
-                        if !h.isDownloaded && !downloading {
-                            ZStack {
-                                Color.black.opacity(0.4)
-                                Image(systemName: "icloud.and.arrow.down")
-                                    .font(.system(size: 16, weight: .bold))
-                                    .foregroundStyle(.white)
+            VStack(spacing: 0) {
+                HStack(spacing: DS.m) {
+                    CoverImage(url: h.coverUrl, cornerRadius: DS.radiusS)
+                        .frame(width: 44, height: 44)
+                        .overlay(alignment: .center) {
+                            if !h.isDownloaded && !isQueued {
+                                ZStack {
+                                    Color.black.opacity(0.4)
+                                    Image(systemName: "icloud.and.arrow.down")
+                                        .font(.system(size: 16, weight: .bold))
+                                        .foregroundStyle(.white)
+                                }
+                                .clipShape(RoundedRectangle(cornerRadius: DS.radiusS))
+                            } else if active != nil {
+                                // Dimmed during active download
+                                Color.black.opacity(0.3)
+                                    .clipShape(RoundedRectangle(cornerRadius: DS.radiusS))
                             }
-                            .clipShape(RoundedRectangle(cornerRadius: DS.radiusS))
                         }
-                    }
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(h.title)
-                        .font(DS.Font.body)
-                        .foregroundStyle(DS.textPrimary)
-                        .lineLimit(1)
-                    HStack(spacing: 4) {
-                        if h.isLiked {
-                            Image(systemName: "heart.fill").font(.system(size: 10)).foregroundStyle(DS.accent)
-                        }
-                        Text(h.artist)
-                            .font(DS.Font.footnote)
-                            .foregroundStyle(DS.textSecondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(h.title)
+                            .font(DS.Font.body)
+                            .foregroundStyle(DS.textPrimary)
                             .lineLimit(1)
+                        if let active {
+                            downloadStatusLine(active)
+                        } else {
+                            HStack(spacing: 4) {
+                                if h.isLiked {
+                                    Image(systemName: "heart.fill")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(DS.accent)
+                                }
+                                Text(h.artist)
+                                    .font(DS.Font.footnote)
+                                    .foregroundStyle(DS.textSecondary)
+                                    .lineLimit(1)
+                            }
+                        }
                     }
-                }
-                Spacer()
+                    Spacer()
 
-                if downloading {
-                    ProgressView().tint(DS.accent).scaleEffect(0.75)
-                } else if h.isDownloaded {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 18))
-                        .foregroundStyle(DS.accent)
-                } else {
-                    Image(systemName: "arrow.down.circle")
-                        .font(.system(size: 20))
-                        .foregroundStyle(DS.textSecondary)
+                    trailingStatusIcon(h, active: active, isQueued: isQueued)
+                }
+                .padding(.horizontal, DS.xl)
+                .padding(.vertical, DS.s)
+
+                // Progress-Bar (unten am Row-Rand)
+                if let active {
+                    progressBar(active)
+                        .padding(.horizontal, DS.xl + 56)  // von Cover-Ende bis right edge
+                        .padding(.bottom, 6)
                 }
             }
-            .padding(.horizontal, DS.xl)
-            .padding(.vertical, DS.s)
         }
         .buttonStyle(.plain)
         .contextMenu {
             Button {
-                Task { await triggerDownload(h.spotifyId) }
+                Task { await triggerDownload(h.spotifyId, addToLiked: true) }
             } label: {
-                Label(downloading ? "Wird geladen..." : "Herunterladen", systemImage: "arrow.down.circle")
+                Label(isQueued ? "Wird geladen..." : "Herunterladen + Liken", systemImage: "heart.circle")
             }
-            .disabled(downloading || h.isDownloaded)
+            .disabled(isQueued || h.isDownloaded)
 
             if h.isDownloaded, let localId = h.localId {
                 Button {
@@ -314,31 +346,164 @@ struct SearchView: View {
         }
     }
 
-    private func triggerDownload(_ spotifyId: String) async {
-        downloadingIds.insert(spotifyId)
-        defer { downloadingIds.remove(spotifyId) }
-        do {
-            _ = try await api.downloadExternalTrack(spotifyId: spotifyId)
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-            // Refresh: markiere als queued
-            if let idx = externalResults.firstIndex(where: { $0.spotifyId == spotifyId }) {
-                var updated = externalResults[idx]
-                externalResults[idx] = API.ExternalSearchResponse.Hit(
-                    spotifyId: updated.spotifyId,
-                    localId: updated.localId,
-                    title: updated.title,
-                    artist: updated.artist,
-                    album: updated.album,
-                    albumId: updated.albumId,
-                    coverUrl: updated.coverUrl,
-                    durationMs: updated.durationMs,
-                    isDownloaded: updated.isDownloaded,
-                    isLiked: updated.isLiked,
-                    isQueued: true
-                )
+    // MARK: - Status-Sub-Views
+
+    @ViewBuilder
+    private func downloadStatusLine(_ active: ActiveDownload) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(DS.accent)
+            Text(statusText(active))
+                .font(DS.Font.footnote)
+                .foregroundStyle(DS.textSecondary)
+                .lineLimit(1)
+        }
+    }
+
+    private func statusText(_ a: ActiveDownload) -> String {
+        switch a.status {
+        case "QUEUED": return "In Warteschlange..."
+        case "RUNNING":
+            if a.total > 0 { return "Lade runter · \(a.processed)/\(a.total)" }
+            return "Lade runter..."
+        case "DONE": return "Fertig"
+        case "FAILED": return "Fehlgeschlagen"
+        default: return a.status
+        }
+    }
+
+    @ViewBuilder
+    private func trailingStatusIcon(_ h: API.ExternalSearchResponse.Hit, active: ActiveDownload?, isQueued: Bool) -> some View {
+        if active != nil || isQueued {
+            Circle()
+                .stroke(DS.accent.opacity(0.25), lineWidth: 2)
+                .overlay {
+                    Circle()
+                        .trim(from: 0, to: CGFloat(active?.progress ?? 0.15))
+                        .stroke(DS.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                }
+                .frame(width: 18, height: 18)
+        } else if h.isDownloaded {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(DS.accent)
+        } else {
+            Image(systemName: "arrow.down.circle")
+                .font(.system(size: 20))
+                .foregroundStyle(DS.textSecondary)
+        }
+    }
+
+    private func progressBar(_ active: ActiveDownload) -> some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(DS.divider)
+                if let p = active.progress {
+                    Capsule().fill(DS.accent)
+                        .frame(width: max(4, geo.size.width * CGFloat(p)))
+                        .animation(.easeInOut(duration: 0.4), value: p)
+                } else {
+                    // Indeterminate pulse
+                    Capsule().fill(DS.accent.opacity(0.6))
+                        .frame(width: max(20, geo.size.width * 0.3))
+                        .offset(x: geo.size.width * 0.35)
+                        .animation(
+                            .easeInOut(duration: 1.0).repeatForever(autoreverses: true),
+                            value: active.processed
+                        )
+                }
             }
+        }
+        .frame(height: 3)
+    }
+
+    // MARK: - Download-Trigger + Polling
+
+    /// Startet Download-Job. Optional: nach DONE auto-like (User-Intent wenn single-tap).
+    private func triggerDownload(_ spotifyId: String, addToLiked: Bool) async {
+        do {
+            let resp = try await api.downloadExternalTrack(spotifyId: spotifyId)
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+
+            // Bereits downloaded? dann nur like
+            if resp.status == "already_downloaded", let lid = resp.localId {
+                if addToLiked { try? await api.likeTrack(lid) }
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                await refreshExternalForSpotifyId(spotifyId)
+                return
+            }
+
+            guard let jobId = resp.jobId else {
+                UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                return
+            }
+
+            // Registriere active download + starte polling
+            activeDownloads[spotifyId] = ActiveDownload(
+                spotifyId: spotifyId, jobId: jobId,
+                status: "QUEUED", processed: 0, total: 0
+            )
+            startPolling(spotifyId: spotifyId, jobId: jobId, autoLike: addToLiked)
         } catch {
             UINotificationFeedbackGenerator().notificationOccurred(.error)
+        }
+    }
+
+    private func startPolling(spotifyId: String, jobId: String, autoLike: Bool) {
+        pollTasks[spotifyId]?.cancel()
+        pollTasks[spotifyId] = Task { @MainActor in
+            var attempts = 0
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                attempts += 1
+                if attempts > 300 {  // max 10min
+                    activeDownloads.removeValue(forKey: spotifyId)
+                    break
+                }
+                guard let job = try? await api.scrapeJob(id: jobId) else { continue }
+                activeDownloads[spotifyId] = ActiveDownload(
+                    spotifyId: spotifyId, jobId: jobId,
+                    status: job.status,
+                    processed: job.processedTracks,
+                    total: job.totalTracks
+                )
+                if job.status == "DONE" {
+                    // Refresh external-row (localId wird jetzt gefuellt)
+                    await refreshExternalForSpotifyId(spotifyId)
+                    if autoLike {
+                        if let hit = externalResults.first(where: { $0.spotifyId == spotifyId }),
+                           let lid = hit.localId {
+                            try? await api.likeTrack(lid)
+                        }
+                    }
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    activeDownloads.removeValue(forKey: spotifyId)
+                    break
+                } else if job.status == "FAILED" {
+                    UINotificationFeedbackGenerator().notificationOccurred(.error)
+                    activeDownloads.removeValue(forKey: spotifyId)
+                    break
+                }
+            }
+            pollTasks.removeValue(forKey: spotifyId)
+        }
+    }
+
+    /// Re-fetch nur fuer einen spotifyId um localId/isDownloaded/isLiked zu refreshen.
+    private func refreshExternalForSpotifyId(_ spotifyId: String) async {
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if let hits = try? await api.externalSearch(q: query) {
+            // Mergen: aktuelles Ranking behalten (nur die spezifische Row updaten)
+            var merged = externalResults
+            if let idx = merged.firstIndex(where: { $0.spotifyId == spotifyId }),
+               let updated = hits.first(where: { $0.spotifyId == spotifyId }) {
+                merged[idx] = updated
+                externalResults = merged
+            } else {
+                externalResults = hits
+            }
         }
     }
 
