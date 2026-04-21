@@ -2,6 +2,7 @@ import SwiftUI
 
 enum LibraryFilter: String, CaseIterable, Identifiable {
     case playlists = "Playlists"
+    case songs = "Songs"
     case albums = "Alben"
     case artists = "Kuenstler"
     var id: String { rawValue }
@@ -27,13 +28,18 @@ struct LibraryView: View {
     @State private var likedCount: Int = 0
     @State private var savedAlbums: [API.SavedAlbumsResponse.Item] = []
     @State private var savedArtists: [API.SavedArtistsResponse.Item] = []
+    @State private var allTracks: [TrackListItem] = []
     @State private var isLoading = true
     @State private var error: String?
     @State private var showCreateSheet = false
     @State private var showProfileSheet = false
+    @State private var showAddToPlaylist = false
+    @State private var pendingTrackId = ""
+    @State private var pendingTrackTitle = ""
     @State private var filter: LibraryFilter = .playlists
     @State private var sort: LibrarySort = .recent
     @State private var api = API.shared
+    @State private var player = Player.shared
 
     var body: some View {
         ZStack {
@@ -86,12 +92,17 @@ struct LibraryView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
-        .task { if playlists.isEmpty { await load() } }
+        .sheet(isPresented: $showAddToPlaylist) {
+            AddToPlaylistSheet(trackId: pendingTrackId, trackTitle: pendingTrackTitle)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+        .task { if playlists.isEmpty && allTracks.isEmpty { await load() } }
     }
 
     @ViewBuilder
     private var content: some View {
-        if isLoading && playlists.isEmpty && savedAlbums.isEmpty && savedArtists.isEmpty {
+        if isLoading && playlists.isEmpty && savedAlbums.isEmpty && savedArtists.isEmpty && allTracks.isEmpty {
             ProgressView().tint(DS.accent).frame(maxHeight: .infinity)
         } else if let error {
             ErrorView(message: error) { Task { await load() } }
@@ -171,9 +182,53 @@ struct LibraryView: View {
     private var listView: some View {
         switch filter {
         case .playlists: playlistList
+        case .songs: songsList
         case .albums: albumsList
         case .artists: artistsList
         }
+    }
+
+    // MARK: - All Songs (flat)
+
+    private var songsList: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                // Liked-Songs row an der Spitze als "Pseudo-Album"
+                NavigationLink(value: PlaylistRoute.likedSongs) {
+                    likedSongsRow
+                }
+                .buttonStyle(.plain)
+                Divider().background(DS.divider).padding(.leading, 88)
+
+                if allTracks.isEmpty && !isLoading {
+                    emptyPlaceholder(title: "Keine Tracks", message: "Scrape Playlists ueber das Profil-Menue, dann tauchen sie hier auf")
+                } else {
+                    ForEach(allTracks) { t in
+                        trackRow(t)
+                    }
+                }
+                Spacer().frame(height: 140)
+            }
+        }
+        .refreshable { await load() }
+    }
+
+    private func trackRow(_ t: TrackListItem) -> some View {
+        TrackRow(
+            track: t,
+            isCurrent: player.currentTrack?.trackId == t.id,
+            isPlaying: player.isPlaying && player.currentTrack?.trackId == t.id
+        ) {
+            let q = allTracks.map { QueueTrack($0) }
+            Task { await player.play(queue: q, startingAt: t.id) }
+        }
+        .rolifyTrackContextMenu(
+            queueTrack: QueueTrack(t),
+            albumId: t.albumId,
+            showAddToPlaylist: $showAddToPlaylist,
+            pendingTrackId: $pendingTrackId,
+            pendingTrackTitle: $pendingTrackTitle
+        )
     }
 
     private var playlistList: some View {
@@ -386,6 +441,7 @@ struct LibraryView: View {
         if let liked = try? await api.likedTracks() { self.likedCount = liked.count }
         if let albs = try? await api.savedAlbums() { self.savedAlbums = albs }
         if let arts = try? await api.savedArtists() { self.savedArtists = arts }
+        if let tracks = try? await api.allTracks(limit: 300) { self.allTracks = tracks }
 
         // Error nur setzen wenn Core-Call (playlists) fehlschlaegt UND nicht cancelled
         if let msg = hardError, !Task.isCancelled {
