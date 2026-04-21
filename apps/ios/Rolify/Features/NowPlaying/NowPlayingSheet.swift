@@ -1,15 +1,6 @@
 import SwiftUI
 
 /// Full-screen Now-Playing Sheet (Spotify-style).
-///
-/// Layout (top->bottom):
-///   [v chevron]   [Playlist/Context name]   [...]
-///   [big Cover-Image, ~full-width]
-///   Track-Title (bold xl) + Artist (smaller)   [heart-save]
-///   [Progress slider] 0:00 ----- -3:24
-///   [shuffle] [prev] [PLAY] [next] [repeat]
-///   [speaker-device] ............. [share] [queue]
-///   [Lyrics Peek-Card]
 struct NowPlayingSheet: View {
     @State private var player = Player.shared
     @State private var queue = PlaybackQueue.shared
@@ -17,44 +8,11 @@ struct NowPlayingSheet: View {
     @State private var isDragging = false
     @State private var dragProgress: Double = 0
     @State private var showQueue = false
-    @State private var contextName: String = ""
 
     var body: some View {
         ZStack {
             backgroundGradient.ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                headerRow
-                    .padding(.horizontal, DS.l)
-                    .padding(.top, DS.m)
-
-                Spacer().frame(height: DS.xl)
-
-                if let track = player.currentTrack {
-                    coverImage(track)
-                }
-
-                Spacer().frame(height: 28)
-
-                titleRow
-
-                Spacer().frame(height: DS.xl)
-
-                progressBar
-
-                Spacer().frame(height: 16)
-
-                controlRow
-
-                Spacer().frame(height: DS.xxl)
-
-                bottomActions
-                    .padding(.horizontal, DS.xl)
-
-                lyricsCard
-                    .padding(.top, DS.m)
-                    .padding(.horizontal, DS.m)
-            }
+            contentStack
         }
         .preferredColorScheme(.dark)
         .sheet(isPresented: $showQueue) {
@@ -64,7 +22,35 @@ struct NowPlayingSheet: View {
         }
     }
 
-    // MARK: Header (v / title / ...)
+    @ViewBuilder
+    private var contentStack: some View {
+        VStack(spacing: 0) {
+            headerRow
+                .padding(.horizontal, DS.l)
+                .padding(.top, DS.m)
+
+            Spacer().frame(height: DS.xl)
+            coverSection
+            Spacer().frame(height: 28)
+
+            titleRow
+            Spacer().frame(height: DS.xl)
+
+            progressBar
+            Spacer().frame(height: 16)
+
+            controlRow
+            Spacer().frame(height: DS.xxl)
+
+            bottomActions.padding(.horizontal, DS.xl)
+
+            lyricsCard
+                .padding(.top, DS.m)
+                .padding(.horizontal, DS.m)
+        }
+    }
+
+    // MARK: Header
 
     private var headerRow: some View {
         HStack {
@@ -79,7 +65,7 @@ struct NowPlayingSheet: View {
 
             Spacer()
 
-            Text(contextName.isEmpty ? "Wird gespielt" : contextName)
+            Text("Wird gespielt")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(DS.textPrimary)
 
@@ -98,78 +84,102 @@ struct NowPlayingSheet: View {
 
     // MARK: Cover
 
-    private func coverImage(_ track: StreamManifest) -> some View {
-        CoverImage(url: track.coverUrl, cornerRadius: DS.radiusM)
-            .frame(width: 340, height: 340)
-            .shadow(color: .black.opacity(0.5), radius: 24, y: 12)
+    @ViewBuilder
+    private var coverSection: some View {
+        if let track = player.currentTrack {
+            CoverImage(url: track.coverUrl, cornerRadius: DS.radiusM)
+                .frame(width: 340, height: 340)
+                .shadow(color: .black.opacity(0.5), radius: 24, y: 12)
+        } else {
+            Color.clear.frame(width: 340, height: 340)
+        }
     }
 
-    // MARK: Title-Row mit Save-Check
+    // MARK: Title + Save
 
+    @ViewBuilder
     private var titleRow: some View {
-        HStack(alignment: .top, spacing: DS.m) {
-            if let track = player.currentTrack {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: DS.xs) {
-                        Text("E")
-                            .font(.system(size: 10, weight: .black))
-                            .foregroundStyle(DS.textSecondary)
-                            .frame(width: 16, height: 16)
-                            .background(Color.white.opacity(0.15))
-                            .clipShape(RoundedRectangle(cornerRadius: 3))
-                        Text(track.title)
-                            .font(.system(size: 24, weight: .black))
-                            .foregroundStyle(DS.textPrimary)
-                            .lineLimit(2)
-                    }
-                    Text(track.artist)
-                        .font(.system(size: 15))
-                        .foregroundStyle(DS.textSecondary)
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                // Green Save Check (placeholder — future: toggle Library)
-                ZStack {
-                    Circle().fill(DS.accent).frame(width: 32, height: 32)
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(.black)
-                }
+        if let track = player.currentTrack {
+            HStack(alignment: .top, spacing: DS.m) {
+                trackTextBlock(track)
+                saveCheckBadge
             }
+            .padding(.horizontal, DS.xl)
         }
-        .padding(.horizontal, DS.xl)
+    }
+
+    private func trackTextBlock(_ track: StreamManifest) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: DS.xs) {
+                explicitBadge
+                Text(track.title)
+                    .font(.system(size: 24, weight: .black))
+                    .foregroundStyle(DS.textPrimary)
+                    .lineLimit(2)
+            }
+            Text(track.artist)
+                .font(.system(size: 15))
+                .foregroundStyle(DS.textSecondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var explicitBadge: some View {
+        Text("E")
+            .font(.system(size: 10, weight: .black))
+            .foregroundStyle(DS.textSecondary)
+            .frame(width: 16, height: 16)
+            .background(Color.white.opacity(0.15))
+            .clipShape(RoundedRectangle(cornerRadius: 3))
+    }
+
+    private var saveCheckBadge: some View {
+        ZStack {
+            Circle().fill(DS.accent).frame(width: 32, height: 32)
+            Image(systemName: "checkmark")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(.black)
+        }
     }
 
     // MARK: Progress
 
     private var progressBar: some View {
         VStack(spacing: DS.xs) {
-            GeometryReader { geo in
-                let actualProgress = player.durationSeconds > 0 ? player.progressSeconds / player.durationSeconds : 0
-                let progress = isDragging ? dragProgress : actualProgress
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.20))
-                    Capsule().fill(DS.textPrimary)
-                        .frame(width: max(0, geo.size.width * progress))
-                }
-                .frame(height: 4)
-                .contentShape(Rectangle())
-                .gesture(dragGesture(width: geo.size.width))
-            }
-            .frame(height: 16)
-            .padding(.horizontal, DS.xl)
+            progressBarTrack
+                .padding(.horizontal, DS.xl)
+            progressLabels
+                .padding(.horizontal, DS.xl)
+        }
+    }
 
-            HStack {
-                Text(formatDuration(seconds: isDragging ? dragProgress * player.durationSeconds : player.progressSeconds))
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(DS.textSecondary)
-                Spacer()
-                Text("-" + formatDuration(seconds: max(0, player.durationSeconds - player.progressSeconds)))
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(DS.textSecondary)
+    private var progressBarTrack: some View {
+        GeometryReader { geo in
+            let actualProgress = player.durationSeconds > 0
+                ? player.progressSeconds / player.durationSeconds : 0
+            let progress = isDragging ? dragProgress : actualProgress
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.20))
+                Capsule().fill(DS.textPrimary)
+                    .frame(width: max(0, geo.size.width * progress))
             }
-            .padding(.horizontal, DS.xl)
+            .frame(height: 4)
+            .contentShape(Rectangle())
+            .gesture(dragGesture(width: geo.size.width))
+        }
+        .frame(height: 16)
+    }
+
+    private var progressLabels: some View {
+        HStack {
+            Text(formatDuration(seconds: isDragging ? dragProgress * player.durationSeconds : player.progressSeconds))
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(DS.textSecondary)
+            Spacer()
+            Text("-" + formatDuration(seconds: max(0, player.durationSeconds - player.progressSeconds)))
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(DS.textSecondary)
         }
     }
 
@@ -186,69 +196,93 @@ struct NowPlayingSheet: View {
             }
     }
 
-    // MARK: Control Row (shuffle/prev/PLAY/next/repeat)
+    // MARK: Controls
 
     private var controlRow: some View {
         HStack(spacing: 0) {
-            Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                queue.toggleShuffle()
-            } label: {
-                Image(systemName: "shuffle")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(queue.shuffle ? DS.accent : DS.textSecondary)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                Task { if let prev = queue.rewind() { await player.play(trackId: prev.id) } }
-            } label: {
-                Image(systemName: "backward.end.fill")
-                    .font(.system(size: 32, weight: .bold))
-                    .foregroundStyle(DS.textPrimary)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                player.togglePlayPause()
-            } label: {
-                ZStack {
-                    Circle().fill(DS.textPrimary).frame(width: 72, height: 72)
-                    Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 28, weight: .black))
-                        .foregroundStyle(.black)
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                Task { if let next = queue.advance() { await player.play(trackId: next.id) } }
-            } label: {
-                Image(systemName: "forward.end.fill")
-                    .font(.system(size: 32, weight: .bold))
-                    .foregroundStyle(DS.textPrimary)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                queue.cycleRepeat()
-            } label: {
-                Image(systemName: repeatIcon)
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(queue.repeatMode == .off ? DS.textSecondary : DS.accent)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.plain)
+            shuffleButton
+            prevButton
+            playButton
+            nextButton
+            repeatButton
         }
         .padding(.horizontal, DS.l)
+    }
+
+    private var shuffleButton: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            queue.toggleShuffle()
+        } label: {
+            Image(systemName: "shuffle")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(queue.shuffle ? DS.accent : DS.textSecondary)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var prevButton: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            Task {
+                if let prev = queue.rewind() {
+                    await player.play(trackId: prev.id)
+                }
+            }
+        } label: {
+            Image(systemName: "backward.end.fill")
+                .font(.system(size: 32, weight: .bold))
+                .foregroundStyle(DS.textPrimary)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var playButton: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            player.togglePlayPause()
+        } label: {
+            ZStack {
+                Circle().fill(DS.textPrimary).frame(width: 72, height: 72)
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 28, weight: .black))
+                    .foregroundStyle(.black)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var nextButton: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            Task {
+                if let next = queue.advance() {
+                    await player.play(trackId: next.id)
+                }
+            }
+        } label: {
+            Image(systemName: "forward.end.fill")
+                .font(.system(size: 32, weight: .bold))
+                .foregroundStyle(DS.textPrimary)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var repeatButton: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            queue.cycleRepeat()
+        } label: {
+            Image(systemName: repeatIcon)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(queue.repeatMode == .off ? DS.textSecondary : DS.accent)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
     }
 
     private var repeatIcon: String {
@@ -258,12 +292,12 @@ struct NowPlayingSheet: View {
         }
     }
 
-    // MARK: Bottom (device/share/queue)
+    // MARK: Bottom actions
 
     private var bottomActions: some View {
         HStack(spacing: 28) {
             Button { } label: {
-                Image(systemName: "hifispeaker.and.homepod.mini")
+                Image(systemName: "hifispeaker")
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundStyle(DS.textSecondary)
             }
@@ -289,7 +323,7 @@ struct NowPlayingSheet: View {
         }
     }
 
-    // MARK: Lyrics Peek-Card
+    // MARK: Lyrics Peek
 
     private var lyricsCard: some View {
         HStack {
@@ -303,18 +337,14 @@ struct NowPlayingSheet: View {
                     .lineLimit(1)
             }
             Spacer()
-            HStack(spacing: DS.m) {
-                Image(systemName: "square.and.arrow.up").foregroundStyle(DS.textSecondary)
-                Image(systemName: "arrow.up.left.and.arrow.down.right").foregroundStyle(DS.textSecondary)
-            }
-            .font(.system(size: 15, weight: .semibold))
+            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(DS.textSecondary)
         }
         .padding(DS.l)
         .background(Color.white.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: DS.radiusL, style: .continuous))
     }
-
-    // MARK: Background
 
     private var backgroundGradient: some View {
         LinearGradient(

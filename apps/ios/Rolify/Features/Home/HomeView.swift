@@ -1,10 +1,6 @@
 import SwiftUI
 
-/// Spotify-style Home. 1:1 Layout:
-///   [Avatar] [All] [Musik] [Podcasts] [Hoerbuecher]   (Top-Bar)
-///   [QuickPickTile x8 in 2-col grid]
-///   "Deine Top-Mixes" -> horizontal MixShelfCard Shelf
-///   "Weiter hoeren" -> horizontal JumpBackCard Shelf
+/// Spotify-style Home. Modular aufgebaut damit Swift-Compiler nicht timeout.
 struct HomeView: View {
     @State private var shelves: [HomeShelf] = []
     @State private var isLoading = true
@@ -23,53 +19,13 @@ struct HomeView: View {
     var body: some View {
         ZStack {
             DS.bg.ignoresSafeArea()
-
-            if isLoading && shelves.isEmpty {
-                ProgressView().tint(DS.accent).frame(maxHeight: .infinity)
-            } else if let error {
-                ErrorView(message: error) { Task { await load() } }
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        topBar
-                            .padding(.bottom, DS.m)
-
-                        quickPicksGrid
-                            .padding(.horizontal, DS.l)
-                            .padding(.top, DS.s)
-
-                        if let mixShelf = shelves.first(where: { $0.id == "recent" && ($0.tracks?.count ?? 0) > 0 }) {
-                            shelfTitle("Deine Top-Mixes")
-                            topMixesShelf(mixShelf)
-                        }
-
-                        if let playlistShelf = shelves.first(where: { $0.id == "playlists" && ($0.playlists?.count ?? 0) > 0 }) {
-                            shelfTitle("Weiter hoeren")
-                            jumpBackShelf(playlistShelf)
-                        }
-
-                        Spacer().frame(height: 140)
-                    }
-                }
-                .refreshable { await load() }
-            }
+            contentArea
         }
         .navigationBarHidden(true)
-        .navigationDestination(for: PlaylistRoute.self) { route in
-            switch route {
-            case let .detail(id, name): PlaylistDetailView(playlistId: id, initialName: name)
-            }
-        }
-        .navigationDestination(for: LibraryRoute.self) { route in
-            switch route {
-            case let .album(id): AlbumDetailView(albumId: id)
-            case let .artist(id): ArtistDetailView(artistId: id)
-            }
-        }
+        .navigationDestination(for: PlaylistRoute.self) { playlistDestination($0) }
+        .navigationDestination(for: LibraryRoute.self) { libraryDestination($0) }
         .sheet(isPresented: $showProfile) {
-            ProfileSheet()
-                .presentationDetents([.large])
-                .presentationDragIndicator(.hidden)
+            ProfileSheet().presentationDetents([.large])
         }
         .sheet(isPresented: $showAddToPlaylist) {
             AddToPlaylistSheet(trackId: pendingTrackId, trackTitle: pendingTrackTitle)
@@ -82,48 +38,130 @@ struct HomeView: View {
         }
     }
 
-    // MARK: Top-Bar (Avatar + Pills)
+    // MARK: Routing
+
+    @ViewBuilder
+    private func playlistDestination(_ route: PlaylistRoute) -> some View {
+        switch route {
+        case let .detail(id, name):
+            PlaylistDetailView(playlistId: id, initialName: name)
+        }
+    }
+
+    @ViewBuilder
+    private func libraryDestination(_ route: LibraryRoute) -> some View {
+        switch route {
+        case let .album(id): AlbumDetailView(albumId: id)
+        case let .artist(id): ArtistDetailView(artistId: id)
+        }
+    }
+
+    // MARK: Content
+
+    @ViewBuilder
+    private var contentArea: some View {
+        if isLoading && shelves.isEmpty {
+            ProgressView().tint(DS.accent).frame(maxHeight: .infinity)
+        } else if let error {
+            ErrorView(message: error) { Task { await load() } }
+        } else {
+            scrollContent
+        }
+    }
+
+    private var scrollContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                topBar.padding(.bottom, DS.m)
+                quickPicksGrid
+                    .padding(.horizontal, DS.l)
+                    .padding(.top, DS.s)
+                mixShelfSection
+                jumpBackSection
+                Spacer().frame(height: 140)
+            }
+        }
+        .refreshable { await load() }
+    }
+
+    // MARK: Top Bar
 
     private var topBar: some View {
         HStack(spacing: DS.m) {
-            AvatarButton(avatarUrl: profile?.avatarUrl, displayName: profile?.displayName ?? "U") {
+            AvatarButton(avatarUrl: profile?.avatarUrl,
+                         displayName: profile?.displayName ?? "U") {
                 showProfile = true
             }
             .padding(.leading, DS.l)
 
-            TopBarPills(options: categories, selection: $selectedCategory, allowDeselect: false)
+            TopBarPills(options: categories,
+                        selection: $selectedCategory,
+                        allowDeselect: false)
         }
         .padding(.top, DS.s)
     }
 
-    // MARK: Quick-Picks-Grid (2 cols x 4 rows)
+    // MARK: Quick Picks
 
     @ViewBuilder
     private var quickPicksGrid: some View {
-        let tracks = shelves.first(where: { $0.id == "recent" })?.tracks ?? []
+        let tracks = currentTracks
         if !tracks.isEmpty {
-            LazyVGrid(columns: [
-                GridItem(.flexible(), spacing: DS.s),
-                GridItem(.flexible(), spacing: DS.s),
-            ], spacing: DS.s) {
+            LazyVGrid(columns: gridColumns, spacing: DS.s) {
                 ForEach(tracks.prefix(8)) { t in
-                    QuickPickTile(title: t.title, coverUrl: t.coverUrl) {
-                        let q = tracks.map { QueueTrack($0) }
-                        Task { await player.play(queue: q, startingAt: t.id) }
-                    }
-                    .rolifyTrackContextMenu(
-                        queueTrack: QueueTrack(t),
-                        albumId: t.albumId,
-                        showAddToPlaylist: $showAddToPlaylist,
-                        pendingTrackId: $pendingTrackId,
-                        pendingTrackTitle: $pendingTrackTitle
-                    )
+                    quickPickCell(t, allTracks: tracks)
                 }
             }
         }
     }
 
+    private var gridColumns: [GridItem] {
+        [GridItem(.flexible(), spacing: DS.s),
+         GridItem(.flexible(), spacing: DS.s)]
+    }
+
+    private func quickPickCell(_ t: TrackListItem,
+                                allTracks: [TrackListItem]) -> some View {
+        QuickPickTile(title: t.title, coverUrl: t.coverUrl) {
+            let q = allTracks.map { QueueTrack($0) }
+            Task { await player.play(queue: q, startingAt: t.id) }
+        }
+        .rolifyTrackContextMenu(
+            queueTrack: QueueTrack(t),
+            albumId: t.albumId,
+            showAddToPlaylist: $showAddToPlaylist,
+            pendingTrackId: $pendingTrackId,
+            pendingTrackTitle: $pendingTrackTitle
+        )
+    }
+
     // MARK: Shelves
+
+    private var currentTracks: [TrackListItem] {
+        shelves.first(where: { $0.id == "recent" })?.tracks ?? []
+    }
+
+    private var currentPlaylists: [PlaylistSummary] {
+        shelves.first(where: { $0.id == "playlists" })?.playlists ?? []
+    }
+
+    @ViewBuilder
+    private var mixShelfSection: some View {
+        let tracks = currentTracks
+        if !tracks.isEmpty {
+            shelfTitle("Deine Top-Mixes")
+            topMixesShelf(tracks)
+        }
+    }
+
+    @ViewBuilder
+    private var jumpBackSection: some View {
+        let playlists = currentPlaylists
+        if !playlists.isEmpty {
+            shelfTitle("Weiter hoeren")
+            jumpBackShelf(playlists)
+        }
+    }
 
     private func shelfTitle(_ text: String) -> some View {
         Text(text)
@@ -134,57 +172,66 @@ struct HomeView: View {
             .padding(.bottom, DS.s)
     }
 
-    private func topMixesShelf(_ shelf: HomeShelf) -> some View {
+    private func topMixesShelf(_ tracks: [TrackListItem]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: DS.m) {
-                let tracks = shelf.tracks ?? []
                 ForEach(Array(tracks.prefix(6).enumerated()), id: \.element.id) { idx, t in
-                    MixShelfCard(
-                        title: mixTitle(for: idx),
-                        coverUrl: t.coverUrl,
-                        subtitle: t.artist,
-                        accentColor: mixColor(for: idx)
-                    ) {
-                        let q = tracks.map { QueueTrack($0) }
-                        Task { await player.play(queue: q, startingAt: t.id) }
-                    }
+                    mixCardFor(track: t, index: idx, allTracks: tracks)
                 }
             }
             .padding(.horizontal, DS.l)
         }
     }
 
-    private func jumpBackShelf(_ shelf: HomeShelf) -> some View {
+    private func mixCardFor(track: TrackListItem, index: Int,
+                            allTracks: [TrackListItem]) -> some View {
+        MixShelfCard(
+            title: mixTitle(for: index),
+            coverUrl: track.coverUrl,
+            subtitle: track.artist,
+            accentColor: mixColor(for: index)
+        ) {
+            let q = allTracks.map { QueueTrack($0) }
+            Task { await player.play(queue: q, startingAt: track.id) }
+        }
+    }
+
+    private func jumpBackShelf(_ playlists: [PlaylistSummary]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: DS.m) {
-                if let playlists = shelf.playlists {
-                    ForEach(playlists) { p in
-                        NavigationLink(value: PlaylistRoute.detail(p.id, p.name)) {
-                            JumpBackCard(
-                                coverUrl: p.coverUrl.isEmpty ? nil : p.coverUrl,
-                                title: p.name
-                            ) {}
-                        }
-                        .buttonStyle(.plain)
-                    }
+                ForEach(playlists) { p in
+                    jumpBackItem(p)
                 }
             }
             .padding(.horizontal, DS.l)
         }
     }
+
+    private func jumpBackItem(_ p: PlaylistSummary) -> some View {
+        NavigationLink(value: PlaylistRoute.detail(p.id, p.name)) {
+            JumpBackCard(
+                coverUrl: p.coverUrl.isEmpty ? nil : p.coverUrl,
+                title: p.name
+            ) {}
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: Helpers
 
     private func mixTitle(for idx: Int) -> String {
-        ["Dein Mix", "Hip-Hop Mix", "Pop Mix", "Dance Mix", "Chill Mix", "Rock Mix"][safe: idx] ?? "Mix \(idx + 1)"
+        let titles = ["Dein Mix", "Hip-Hop Mix", "Pop Mix", "Dance Mix", "Chill Mix", "Rock Mix"]
+        return idx < titles.count ? titles[idx] : "Mix \(idx + 1)"
     }
 
     private func mixColor(for idx: Int) -> Color {
         let colors: [Color] = [
-            Color(red: 0.96, green: 0.48, blue: 0.40),  // coral
-            Color(red: 0.14, green: 0.78, blue: 0.85),  // cyan
-            Color(red: 0.62, green: 0.34, blue: 0.83),  // purple
-            Color(red: 0.96, green: 0.72, blue: 0.22),  // gold
-            Color(red: 0.36, green: 0.79, blue: 0.56),  // teal
-            Color(red: 0.92, green: 0.36, blue: 0.58),  // pink
+            Color(red: 0.96, green: 0.48, blue: 0.40),
+            Color(red: 0.14, green: 0.78, blue: 0.85),
+            Color(red: 0.62, green: 0.34, blue: 0.83),
+            Color(red: 0.96, green: 0.72, blue: 0.22),
+            Color(red: 0.36, green: 0.79, blue: 0.56),
+            Color(red: 0.92, green: 0.36, blue: 0.58),
         ]
         return colors[idx % colors.count]
     }
@@ -205,13 +252,5 @@ struct HomeView: View {
     private func loadProfile() async {
         if profile != nil { return }
         do { self.profile = try await api.me() } catch { }
-    }
-}
-
-// MARK: - Safe-index helper (nur hier, global)
-
-extension Collection {
-    subscript(safe index: Index) -> Element? {
-        indices.contains(index) ? self[index] : nil
     }
 }
