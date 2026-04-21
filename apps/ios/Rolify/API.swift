@@ -380,6 +380,11 @@ final class API {
         try await requestVoid("/admin/scrape/jobs/\(id)", method: "DELETE")
     }
 
+    /// Single-job status fuer polling (progress-bar wird daraus gespeist).
+    func scrapeJob(id: String) async throws -> ScrapeJob {
+        try await request("/admin/scrape/jobs/\(id)", method: "GET")
+    }
+
     func pauseScrapeJob(id: String) async throws {
         struct Out: Decodable { let status: String }
         let _: Out = try await request("/admin/scrape/jobs/\(id)/pause", method: "POST")
