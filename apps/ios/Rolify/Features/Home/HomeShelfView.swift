@@ -52,7 +52,7 @@ struct HomeShelfView: View {
         }
         .buttonStyle(.plain)
         .rolifyTrackContextMenu(
-            trackId: t.id, trackTitle: t.title,
+            queueTrack: QueueTrack(t),
             albumId: t.albumId,
             showAddToPlaylist: $showAddToPlaylist,
             pendingTrackId: $pendingTrackId,
