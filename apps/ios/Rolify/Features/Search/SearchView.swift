@@ -118,52 +118,71 @@ struct SearchView: View {
     @ViewBuilder
     private func resultsView(_ r: SearchResponse) -> some View {
         if r.tracks.isEmpty && r.artists.isEmpty && r.albums.isEmpty {
-            VStack(spacing: DS.m) {
-                Spacer().frame(height: 80)
-                Image(systemName: "magnifyingglass").font(.system(size: 40)).foregroundStyle(DS.textSecondary)
-                Text("Nichts gefunden").font(DS.Font.bodyLarge).foregroundStyle(DS.textPrimary)
-                Text("Fuer \"\(query)\"").font(DS.Font.caption).foregroundStyle(DS.textSecondary)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity)
+            emptyResults
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    if !r.tracks.isEmpty {
-                        SectionHeader(title: "Songs")
-                        ForEach(r.tracks) { t in
-                            TrackRow(
-                                track: t,
-                                isCurrent: player.currentTrack?.trackId == t.id,
-                                isPlaying: player.isPlaying && player.currentTrack?.trackId == t.id
-                            ) {
-                                let q = r.tracks.map { QueueTrack($0) }
-                                Task { await player.play(queue: q, startingAt: t.id) }
-                            }
-                            .rolifyTrackContextMenu(
-                                trackId: t.id, trackTitle: t.title,
-                                albumId: t.albumId,
-                                showAddToPlaylist: $showAddToPlaylist,
-                                pendingTrackId: $pendingTrackId,
-                                pendingTrackTitle: $pendingTrackTitle
-                            )
-                        }
-                    }
-                    if !r.artists.isEmpty {
-                        SectionHeader(title: "Kuenstler")
-                        ForEach(r.artists) { a in
-                            artistRow(a)
-                        }
-                    }
-                    if !r.albums.isEmpty {
-                        SectionHeader(title: "Alben")
-                        ForEach(r.albums) { alb in
-                            albumRow(alb)
-                        }
-                    }
+                    tracksSection(r.tracks)
+                    artistsSection(r.artists)
+                    albumsSection(r.albums)
                     Spacer().frame(height: 120)
                 }
             }
+        }
+    }
+
+    private var emptyResults: some View {
+        VStack(spacing: DS.m) {
+            Spacer().frame(height: 80)
+            Image(systemName: "magnifyingglass").font(.system(size: 40)).foregroundStyle(DS.textSecondary)
+            Text("Nichts gefunden").font(DS.Font.bodyLarge).foregroundStyle(DS.textPrimary)
+            Text("Fuer \"\(query)\"").font(DS.Font.caption).foregroundStyle(DS.textSecondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func tracksSection(_ tracks: [TrackListItem]) -> some View {
+        if !tracks.isEmpty {
+            SectionHeader(title: "Songs")
+            ForEach(tracks) { t in
+                trackRowWithMenu(t, allTracks: tracks)
+            }
+        }
+    }
+
+    private func trackRowWithMenu(_ t: TrackListItem, allTracks: [TrackListItem]) -> some View {
+        TrackRow(
+            track: t,
+            isCurrent: player.currentTrack?.trackId == t.id,
+            isPlaying: player.isPlaying && player.currentTrack?.trackId == t.id
+        ) {
+            let q = allTracks.map { QueueTrack($0) }
+            Task { await player.play(queue: q, startingAt: t.id) }
+        }
+        .rolifyTrackContextMenu(
+            queueTrack: QueueTrack(t),
+            albumId: t.albumId,
+            showAddToPlaylist: $showAddToPlaylist,
+            pendingTrackId: $pendingTrackId,
+            pendingTrackTitle: $pendingTrackTitle
+        )
+    }
+
+    @ViewBuilder
+    private func artistsSection(_ artists: [ArtistListItem]) -> some View {
+        if !artists.isEmpty {
+            SectionHeader(title: "Kuenstler")
+            ForEach(artists) { a in artistRow(a) }
+        }
+    }
+
+    @ViewBuilder
+    private func albumsSection(_ albums: [AlbumListItem]) -> some View {
+        if !albums.isEmpty {
+            SectionHeader(title: "Alben")
+            ForEach(albums) { alb in albumRow(alb) }
         }
     }
 

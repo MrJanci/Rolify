@@ -48,7 +48,8 @@ struct LibraryView: View {
                                 Task { await player.play(queue: qtracks, startingAt: t.id) }
                             }
                             .rolifyTrackContextMenu(
-                                for: t,
+                                queueTrack: QueueTrack(t),
+                                albumId: t.albumId,
                                 showAddToPlaylist: $showAddToPlaylist,
                                 pendingTrackId: $pendingTrackId,
                                 pendingTrackTitle: $pendingTrackTitle
