@@ -2,6 +2,15 @@
 
 Self-hosted Spotify-Klon. Native iOS App, eigenes Backend, automatisierte Music-Acquisition-Pipeline, Custom-DRM fuer Offline-Songs, Jam-Feature.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/01-login.png" width="22%" alt="Login" />
+  <img src="docs/screenshots/02-home.png" width="22%" alt="Home" />
+  <img src="docs/screenshots/03-library.png" width="22%" alt="Library" />
+  <img src="docs/screenshots/04-search.png" width="22%" alt="Search + Create" />
+</p>
+
 ## Struktur
 
 ```
