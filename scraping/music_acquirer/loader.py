@@ -52,9 +52,16 @@ def upload_cover(meta: TrackMeta) -> str | None:
 
 
 def upsert_track(meta: TrackMeta, enc: EncryptedTrack, blob_key: str, cover_key: str | None) -> None:
-    """Upserts Artist -> Album -> Track mit ON CONFLICT."""
+    """Upserts Artist -> Album -> Track mit ON CONFLICT.
+
+    Edge-Case: ISRC ist ein UNIQUE-Index, aber Spotify liefert dieselbe ISRC
+    fuer Re-Releases/Deluxe-Editions unter verschiedenen spotifyIds. Wenn wir
+    einen neuen spotifyId INSERTen und die ISRC schon existiert, gibt's nen
+    Unique-Conflict. Fix: Pre-Check - wenn ISRC schon da ist, nutze die
+    existing Track-Row und update nur blob/masterKey.
+    """
     with psycopg.connect(settings.database_url) as conn, conn.cursor() as cur:
-        # Artist (nur den Haupt-Artist fuer jetzt, bei Features = string-concat)
+        # Artist
         cur.execute(
             """
             INSERT INTO "Artist" (id, name)
@@ -77,26 +84,50 @@ def upsert_track(meta: TrackMeta, enc: EncryptedTrack, blob_key: str, cover_key:
             (meta.album_id, meta.album, cover_url, release_year, artist_id),
         )
 
-        cur.execute(
-            """
-            INSERT INTO "Track" (id, title, "durationMs", "trackNumber", isrc, "spotifyId",
-                                 "albumId", "artistId", "encryptedBlobKey", "masterKey", "createdAt")
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
-            ON CONFLICT ("spotifyId") DO UPDATE SET
-                "encryptedBlobKey" = EXCLUDED."encryptedBlobKey",
-                "masterKey" = EXCLUDED."masterKey"
-            """,
-            (
-                meta.spotify_id,
-                meta.title,
-                meta.duration_ms,
-                meta.track_number,
-                meta.isrc,
-                meta.spotify_id,
-                meta.album_id,
-                artist_id,
-                blob_key,
-                enc.master_key,
-            ),
-        )
+        # ISRC-Duplicate-Check: falls ISRC bereits existiert, update die bestehende
+        # Track-Row statt neuen Insert der wegen unique-constraint crashen wuerde.
+        existing_by_isrc: str | None = None
+        if meta.isrc:
+            cur.execute(
+                'SELECT id FROM "Track" WHERE isrc = %s LIMIT 1',
+                (meta.isrc,),
+            )
+            row = cur.fetchone()
+            if row:
+                existing_by_isrc = row[0]
+
+        if existing_by_isrc and existing_by_isrc != meta.spotify_id:
+            # Existing Track mit gleicher ISRC (anderer spotifyId) - nur blob-refresh
+            cur.execute(
+                """
+                UPDATE "Track" SET
+                    "encryptedBlobKey" = %s,
+                    "masterKey" = %s
+                WHERE id = %s
+                """,
+                (blob_key, enc.master_key, existing_by_isrc),
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO "Track" (id, title, "durationMs", "trackNumber", isrc, "spotifyId",
+                                     "albumId", "artistId", "encryptedBlobKey", "masterKey", "createdAt")
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+                ON CONFLICT ("spotifyId") DO UPDATE SET
+                    "encryptedBlobKey" = EXCLUDED."encryptedBlobKey",
+                    "masterKey" = EXCLUDED."masterKey"
+                """,
+                (
+                    meta.spotify_id,
+                    meta.title,
+                    meta.duration_ms,
+                    meta.track_number,
+                    meta.isrc,
+                    meta.spotify_id,
+                    meta.album_id,
+                    artist_id,
+                    blob_key,
+                    enc.master_key,
+                ),
+            )
         conn.commit()
