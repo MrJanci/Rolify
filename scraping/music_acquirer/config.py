@@ -24,5 +24,9 @@ class AcquirerSettings(BaseSettings):
     target_bitrate_kbps: int = 256
     target_format: str = "m4a"   # AAC container
 
+    # Optional: YouTube cookies.txt Pfad (fuer age-gated Videos).
+    # Nicht in Git — kommt via docker volume-mount oder env.
+    youtube_cookies_path: str = "/app/.youtube-cookies.txt"
+
 
 settings = AcquirerSettings()
