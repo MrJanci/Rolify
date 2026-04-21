@@ -49,6 +49,37 @@ def _client() -> spotipy.Spotify:
     return spotipy.Spotify(auth_manager=auth)
 
 
+@dataclass(slots=True)
+class PlaylistMeta:
+    spotify_id: str
+    name: str
+    description: str
+    cover_url: str
+    owner_name: str
+
+
+def fetch_playlist_meta(playlist_uri: str) -> PlaylistMeta | None:
+    """Holt Name / Cover / Owner einer Playlist (fuer Auto-Create in Rolify).
+    Fehlt die Playlist / privat → None (worker macht nur Tracks-Scrape dann).
+    """
+    sp = _client()
+    playlist_id = playlist_uri.split(":")[-1]
+    try:
+        p = sp.playlist(playlist_id, fields="id,name,description,images,owner(display_name,id)")
+    except Exception:
+        return None
+    if not p:
+        return None
+    images = p.get("images") or []
+    return PlaylistMeta(
+        spotify_id=p["id"],
+        name=p.get("name") or "Unbenannte Playlist",
+        description=p.get("description") or "",
+        cover_url=images[0]["url"] if images else "",
+        owner_name=(p.get("owner") or {}).get("display_name", ""),
+    )
+
+
 def fetch_playlist_tracks(playlist_uri: str) -> list[TrackMeta]:
     """Holt alle Tracks einer oeffentlichen Spotify-Playlist."""
     sp = _client()
