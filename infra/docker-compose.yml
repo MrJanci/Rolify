@@ -91,7 +91,8 @@ services:
       SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}
     volumes:
       # .spotify-token.json wird vom Host-FS gemounted (OAuth-Refresh-Token)
-      - ../scraping/.spotify-token.json:/app/.spotify-token.json:ro
+      # RW damit spotipy den access_token refreshen kann (expires after 60 min)
+      - ../scraping/.spotify-token.json:/app/.spotify-token.json
 
   backend:
     build:

@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { FastifyInstance } from "fastify";
 import { prisma } from "../lib/prisma.js";
 import { env } from "../config.js";
+import { spotifySearchTracks } from "../lib/spotifyClient.js";
 
 /**
  * pg_trgm similarity-basierte Fuzzy-Suche.
@@ -122,5 +123,104 @@ export default async function searchRoutes(app: FastifyInstance) {
         releaseYear: alb.releaseYear,
       })),
     };
+  });
+
+  /// External-Search: Spotify-Katalog + Check welche Tracks wir schon haben/saved/queued.
+  /// Response: pro Track {spotifyId, title, artist, ..., localId?, isDownloaded, isLiked, isQueued}
+  /// - localId = vorhandener Track.id in DB (null wenn noch nicht gescrapt)
+  /// - isDownloaded = lokal in DB und abspielbar
+  /// - isLiked = userLibraryTrack existiert
+  /// - isQueued = ScrapeJob status QUEUED|RUNNING|PAUSED fuer diesen spotifyId
+  app.get("/search/external", async (req, reply) => {
+    const { q, limit } = Query.parse(req.query);
+    try {
+      const hits = await spotifySearchTracks(q, limit);
+      if (hits.length === 0) {
+        return { tracks: [] };
+      }
+      const spotifyIds = hits.map((h) => h.spotifyId);
+      // Check local-state fuer jeden Hit
+      const [localTracks, likedRows, queuedJobs] = await Promise.all([
+        prisma.track.findMany({
+          where: { spotifyId: { in: spotifyIds } },
+          select: { id: true, spotifyId: true, album: { select: { coverUrl: true } } },
+        }),
+        prisma.libraryTrack.findMany({
+          where: {
+            userId: req.user.sub,
+            track: { spotifyId: { in: spotifyIds } },
+          },
+          include: { track: { select: { spotifyId: true } } },
+        }),
+        prisma.scrapeJob.findMany({
+          where: {
+            status: { in: ["QUEUED", "RUNNING", "PAUSED"] },
+            playlistUrl: { in: spotifyIds.map((id) => `spotify:track:${id}`) },
+          },
+          select: { playlistUrl: true },
+        }),
+      ]);
+      const localMap = new Map(localTracks.map((t) => [t.spotifyId!, { id: t.id, cover: t.album.coverUrl }]));
+      const likedSet = new Set(likedRows.map((r) => r.track.spotifyId).filter((x): x is string => !!x));
+      const queuedSet = new Set(queuedJobs.map((j) => j.playlistUrl.replace("spotify:track:", "")));
+
+      return {
+        tracks: hits.map((h) => {
+          const local = localMap.get(h.spotifyId);
+          return {
+            spotifyId: h.spotifyId,
+            localId: local?.id ?? null,
+            title: h.title,
+            artist: h.artist,
+            album: h.album,
+            albumId: h.albumId,
+            coverUrl: h.coverUrl,
+            durationMs: h.durationMs,
+            isDownloaded: !!local,
+            isLiked: likedSet.has(h.spotifyId),
+            isQueued: queuedSet.has(h.spotifyId),
+          };
+        }),
+      };
+    } catch (err) {
+      req.log.error({ err }, "external_search_failed");
+      return reply.status(502).send({ error: "spotify_search_failed", message: err instanceof Error ? err.message : "unknown" });
+    }
+  });
+
+  /// Trigger-Download fuer einen einzelnen Spotify-Track.
+  /// Enqueue'd ScrapeJob mit spotify:track:ID Format.
+  /// Idempotent: wenn bereits gequeued, gibt existing job zurueck.
+  app.post<{ Params: { id: string } }>("/search/external/:id/download", async (req, reply) => {
+    const spotifyId = req.params.id;
+    if (!/^[a-zA-Z0-9]{10,30}$/.test(spotifyId)) {
+      return reply.status(400).send({ error: "invalid_spotify_id" });
+    }
+    // Schon in DB?
+    const existing = await prisma.track.findUnique({
+      where: { spotifyId },
+      select: { id: true },
+    });
+    if (existing) {
+      return { status: "already_downloaded", localId: existing.id };
+    }
+    // Schon queued?
+    const existingJob = await prisma.scrapeJob.findFirst({
+      where: {
+        playlistUrl: `spotify:track:${spotifyId}`,
+        status: { in: ["QUEUED", "RUNNING", "PAUSED"] },
+      },
+      select: { id: true, status: true },
+    });
+    if (existingJob) {
+      return { status: "already_queued", jobId: existingJob.id };
+    }
+    const job = await prisma.scrapeJob.create({
+      data: {
+        playlistUrl: `spotify:track:${spotifyId}`,
+        createdBy: req.user.sub,
+      },
+    });
+    return reply.status(201).send({ status: "queued", jobId: job.id });
   });
 }

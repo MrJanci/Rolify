@@ -287,6 +287,45 @@ final class API {
         return try await requestPath("/search?\(qs)", method: "GET")
     }
 
+    // MARK: External Search (Spotify Catalog)
+
+    struct ExternalSearchResponse: Codable {
+        struct Hit: Codable, Identifiable, Hashable {
+            let spotifyId: String
+            let localId: String?
+            let title: String
+            let artist: String
+            let album: String
+            let albumId: String
+            let coverUrl: String
+            let durationMs: Int
+            let isDownloaded: Bool
+            let isLiked: Bool
+            let isQueued: Bool
+            var id: String { spotifyId }
+        }
+        let tracks: [Hit]
+    }
+
+    func externalSearch(q: String) async throws -> [ExternalSearchResponse.Hit] {
+        var comps = URLComponents()
+        comps.queryItems = [URLQueryItem(name: "q", value: q)]
+        let qs = comps.percentEncodedQuery ?? ""
+        let r: ExternalSearchResponse = try await requestPath("/search/external?\(qs)", method: "GET")
+        return r.tracks
+    }
+
+    struct DownloadExternalResponse: Codable {
+        let status: String  // queued / already_queued / already_downloaded
+        let jobId: String?
+        let localId: String?
+    }
+
+    @discardableResult
+    func downloadExternalTrack(spotifyId: String) async throws -> DownloadExternalResponse {
+        try await request("/search/external/\(spotifyId)/download", method: "POST")
+    }
+
     func myPlaylists() async throws -> [PlaylistSummary] {
         try await request("/playlists/me", method: "GET")
     }
