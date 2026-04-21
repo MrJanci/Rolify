@@ -91,3 +91,5 @@ docs/SIDESTORE-SETUP.md
 # YouTube cookies (login session — must never be committed)
 scraping/.youtube-cookies.txt
 *youtube*cookies*.txt
+scraping/.cache
+**/.cache
