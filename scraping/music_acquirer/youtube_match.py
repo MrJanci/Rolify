@@ -6,11 +6,13 @@ Duration-Diff und Title-Similarity.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 import Levenshtein
 import yt_dlp
 
+from .config import settings
 from .spotify_meta import TrackMeta
 
 
@@ -78,6 +80,12 @@ def _search(query: str, limit: int = 5) -> list[dict]:
         "default_search": f"ytsearch{limit}",
         "skip_download": True,
     }
+    # Cookies fuer die Suche (damit Metadaten zu age-restricted Videos
+    # vollstaendig sind — sonst fehlen age_limit + duration-Infos)
+    cookies_path = settings.youtube_cookies_path
+    if cookies_path and os.path.exists(cookies_path):
+        opts["cookiefile"] = cookies_path
+
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(query, download=False)
         return info.get("entries", []) if info else []

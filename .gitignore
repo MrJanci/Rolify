@@ -87,3 +87,7 @@ apps/backend/prisma/*.db-journal
 docs/*.local
 docs/SIDESTORE-SETUP.md
 .claude/
+
+# YouTube cookies (login session — must never be committed)
+scraping/.youtube-cookies.txt
+*youtube*cookies*.txt

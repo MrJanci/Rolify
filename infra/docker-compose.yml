@@ -93,6 +93,11 @@ services:
       # .spotify-token.json wird vom Host-FS gemounted (OAuth-Refresh-Token)
       # RW damit spotipy den access_token refreshen kann (expires after 60 min)
       - ../scraping/.spotify-token.json:/app/.spotify-token.json
+      # YouTube cookies.txt fuer age-gated Videos.
+      # File existiert nur auf Pi, liegt neben .spotify-token.json.
+      # Falls nicht vorhanden: docker-compose up laeuft auch ohne (yt-dlp skipped dann
+      # age-gated content mit fehler, genau wie vorher).
+      - ../scraping/.youtube-cookies.txt:/app/.youtube-cookies.txt:ro
 
   backend:
     build:
