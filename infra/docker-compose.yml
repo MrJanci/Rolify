@@ -89,6 +89,10 @@ services:
       MINIO_BUCKET_COVERS: ${MINIO_BUCKET_COVERS}
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID}
       SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}
+      # Parallel-Downloads pro Job — hoeher = schneller, aber mehr Last
+      # auf YT-Rate-Limits + Pi-CPU. 12 ist safe mit Cookies.
+      CONCURRENCY_DOWNLOAD: ${CONCURRENCY_DOWNLOAD:-12}
+      CONCURRENCY_TRANSCODE: ${CONCURRENCY_TRANSCODE:-4}
     volumes:
       # .spotify-token.json wird vom Host-FS gemounted (OAuth-Refresh-Token)
       # RW damit spotipy den access_token refreshen kann (expires after 60 min)
