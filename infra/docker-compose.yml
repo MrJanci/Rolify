@@ -98,10 +98,9 @@ services:
       # RW damit spotipy den access_token refreshen kann (expires after 60 min)
       - ../scraping/.spotify-token.json:/app/.spotify-token.json
       # YouTube cookies.txt fuer age-gated Videos.
-      # File existiert nur auf Pi, liegt neben .spotify-token.json.
-      # Falls nicht vorhanden: docker-compose up laeuft auch ohne (yt-dlp skipped dann
-      # age-gated content mit fehler, genau wie vorher).
-      - ../scraping/.youtube-cookies.txt:/app/.youtube-cookies.txt:ro
+      # RW damit yt-dlp den cookies-file refreshen kann (sonst OSError: Read-only FS).
+      # Session-cookies werden sowieso ueber die Zeit updated; kein security-issue.
+      - ../scraping/.youtube-cookies.txt:/app/.youtube-cookies.txt
 
   backend:
     build:
