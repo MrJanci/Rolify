@@ -83,7 +83,23 @@ struct ProfileSheet: View {
                 }
             }
         } else if let error {
-            ErrorView(message: error) { Task { await load() } }
+            VStack(spacing: DS.l) {
+                ErrorView(message: error) { Task { await load() } }
+                Button {
+                    api.logout()
+                    dismiss()
+                } label: {
+                    Text("Trotzdem abmelden")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Color.red)
+                        .frame(maxWidth: .infinity).frame(height: 48)
+                        .background(DS.bgElevated)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, DS.xl)
+                .padding(.bottom, DS.xxl)
+            }
         } else {
             Color.clear
         }
