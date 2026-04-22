@@ -35,15 +35,29 @@ async def process_track(meta: TrackMeta, semaphore: asyncio.Semaphore) -> bool:
         try:
             loop = asyncio.get_running_loop()
 
-            match = await loop.run_in_executor(None, youtube_match.match_track, meta)
-            if not match:
-                log.warn("no_match", track=meta.title)
-                return False
+            # Shortcut fuer YT-originating tracks (spotify_id = "yt:VIDEO_ID"):
+            # Keine YT-Search noetig, direkt Video-URL verwenden.
+            if meta.spotify_id.startswith("yt:"):
+                vid = meta.spotify_id.split(":", 1)[1]
+                match = youtube_match.YouTubeMatch(
+                    video_id=vid,
+                    url=f"https://youtube.com/watch?v={vid}",
+                    title=meta.title,
+                    duration_s=meta.duration_ms // 1000,
+                    score=1.0,
+                )
+            else:
+                match = await loop.run_in_executor(None, youtube_match.match_track, meta)
+                if not match:
+                    log.warn("no_match", track=meta.title)
+                    return False
 
-            raw_path = await loop.run_in_executor(None, downloader.download_audio, match, meta.spotify_id)
-            audio_path = await loop.run_in_executor(None, transcoder.transcode, raw_path, meta.spotify_id)
-            enc = await loop.run_in_executor(None, encryptor.encrypt_file, audio_path, meta.spotify_id)
-            blob_key = await loop.run_in_executor(None, loader.upload_encrypted_track, enc, meta.spotify_id)
+            # Sanitize spotify_id fuer Dateinamen (":" ist valide in POSIX, aber safer ohne)
+            safe_id = meta.spotify_id.replace(":", "_")
+            raw_path = await loop.run_in_executor(None, downloader.download_audio, match, safe_id)
+            audio_path = await loop.run_in_executor(None, transcoder.transcode, raw_path, safe_id)
+            enc = await loop.run_in_executor(None, encryptor.encrypt_file, audio_path, safe_id)
+            blob_key = await loop.run_in_executor(None, loader.upload_encrypted_track, enc, safe_id)
             cover_key = await loop.run_in_executor(None, loader.upload_cover, meta)
             await loop.run_in_executor(None, loader.upsert_track, meta, enc, blob_key, cover_key)
 
