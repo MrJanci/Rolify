@@ -31,6 +31,11 @@ from music_acquirer.spotify_meta import (
     PlaylistMeta,
     TrackMeta,
 )
+from music_acquirer.yt_meta import (
+    fetch_yt_search,
+    fetch_yt_playlist,
+    fetch_yt_video,
+)
 
 log = structlog.get_logger()
 
@@ -240,11 +245,22 @@ async def run_job(conn: psycopg.AsyncConnection, job_id: str, playlist_url: str,
         if "collection/tracks" in lower or lower == "spotify:collection:tracks":
             tracks = fetch_liked_tracks()
             job_log.info("dispatched_liked_tracks")
-            # Liked Songs landen in LibraryTrack (automatisch, nicht hier) — keine Playlist
         elif "spotify:track:" in lower or "/track/" in lower:
             tracks = fetch_single_track(playlist_url)
             job_log.info("dispatched_single_track")
-            # Single-Track → keine Playlist
+        # NEW: YT direct-scraping (umgeht Spotify-API-Restrictions)
+        elif lower.startswith("yt:search:"):
+            query = playlist_url.split(":", 2)[2]  # "yt:search:pop hits 2025"
+            tracks = fetch_yt_search(query, limit=25)
+            job_log.info("dispatched_yt_search", query=query, count=len(tracks))
+        elif lower.startswith("yt:playlist:") or "youtube.com/playlist" in lower or "music.youtube.com/playlist" in lower:
+            pid = playlist_url.split(":", 2)[2] if lower.startswith("yt:playlist:") else playlist_url
+            tracks = fetch_yt_playlist(pid, max_videos=100)
+            job_log.info("dispatched_yt_playlist", count=len(tracks))
+        elif lower.startswith("yt:video:") or "youtube.com/watch" in lower or "youtu.be/" in lower:
+            vid = playlist_url.split(":", 2)[2] if lower.startswith("yt:video:") else playlist_url
+            tracks = fetch_yt_video(vid)
+            job_log.info("dispatched_yt_video")
         else:
             tracks = fetch_playlist_tracks(playlist_url)
             job_log.info("dispatched_playlist")
