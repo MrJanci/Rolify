@@ -568,7 +568,10 @@ final class API {
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard let http = resp as? HTTPURLResponse else { throw APIError.httpError(-1, "no response") }
         if http.statusCode == 401 && !retried {
-            try await refresh()
+            do { try await refresh() } catch {
+                logout()
+                throw APIError.unauthorized
+            }
             try await requestVoidPath(path, method: method, body: body, retried: true)
             return
         }
@@ -614,7 +617,14 @@ final class API {
         if http.statusCode == 401 && auth && !retried {
             // Einmalig transparent refresh versuchen. `retried` verhindert infinite loop
             // falls der neue Access-Token auch sofort 401 gibt (z.B. widerrufen).
-            try await refresh()
+            do {
+                try await refresh()
+            } catch {
+                // Refresh fehlgeschlagen → Tokens sind kaputt/widerrufen.
+                // Auto-logout damit AppRoot zu LoginView switched statt 401-Loop.
+                logout()
+                throw APIError.unauthorized
+            }
             return try await requestInner(path, method: method, body: body, auth: auth, retried: true)
         }
         guard (200..<300).contains(http.statusCode) else {
