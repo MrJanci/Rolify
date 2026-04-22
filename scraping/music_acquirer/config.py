@@ -18,7 +18,8 @@ class AcquirerSettings(BaseSettings):
     database_url: str = "postgres://postgres:postgres@localhost:5432/rolify"
 
     temp_dir: Path = Path("/tmp/rolify-dl")
-    concurrency_download: int = 8
+    # Env-override via CONCURRENCY_DOWNLOAD=16 etc. (docker-compose env)
+    concurrency_download: int = 12
     concurrency_transcode: int = 4
 
     target_bitrate_kbps: int = 256
