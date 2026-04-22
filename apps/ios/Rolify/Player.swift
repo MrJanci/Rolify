@@ -254,10 +254,18 @@ final class Player {
     // MARK: NowPlayingInfo + Artwork
 
     private func setupNowPlayingInfo(manifest: StreamManifest) async {
+        // Album-Feld um "Rolify" erweitern - wird auf Auto-BT-Displays sichtbar
+        // (die zeigen meistens Title/Artist/Album in 3 Zeilen). Sieht aus wie:
+        //   Track-Name
+        //   Artist
+        //   Album · Rolify
+        let albumWithBrand = manifest.album.isEmpty
+            ? "Rolify"
+            : "\(manifest.album) · Rolify"
         let info: [String: Any] = [
             MPMediaItemPropertyTitle: manifest.title,
             MPMediaItemPropertyArtist: manifest.artist,
-            MPMediaItemPropertyAlbumTitle: manifest.album,
+            MPMediaItemPropertyAlbumTitle: albumWithBrand,
             MPMediaItemPropertyPlaybackDuration: Double(manifest.durationMs) / 1000.0,
             MPNowPlayingInfoPropertyElapsedPlaybackTime: 0.0,
             MPNowPlayingInfoPropertyPlaybackRate: 1.0,
