@@ -83,7 +83,7 @@ final class JamLocalTransport: NSObject, JamTransport {
 
 // MARK: - MCSessionDelegate
 
-extension JamLocalTransport: @preconcurrency MCSessionDelegate {
+extension JamLocalTransport: MCSessionDelegate {
     nonisolated func session(_ session: MCSession, peer peerID: MCPeerID, didChange state: MCSessionState) {
         Task { @MainActor in
             let connected = state == .connected
@@ -107,7 +107,7 @@ extension JamLocalTransport: @preconcurrency MCSessionDelegate {
 
 // MARK: - Advertiser (host)
 
-extension JamLocalTransport: @preconcurrency MCNearbyServiceAdvertiserDelegate {
+extension JamLocalTransport: MCNearbyServiceAdvertiserDelegate {
     nonisolated func advertiser(_ advertiser: MCNearbyServiceAdvertiser, didReceiveInvitationFromPeer peerID: MCPeerID, withContext context: Data?, invitationHandler: @escaping (Bool, MCSession?) -> Void) {
         Task { @MainActor in
             // Host accepted invitations automatisch (kein User-Prompt)
@@ -118,7 +118,7 @@ extension JamLocalTransport: @preconcurrency MCNearbyServiceAdvertiserDelegate {
 
 // MARK: - Browser (guest)
 
-extension JamLocalTransport: @preconcurrency MCNearbyServiceBrowserDelegate {
+extension JamLocalTransport: MCNearbyServiceBrowserDelegate {
     nonisolated func browser(_ browser: MCNearbyServiceBrowser, foundPeer peerID: MCPeerID, withDiscoveryInfo info: [String : String]?) {
         Task { @MainActor in
             if !self.discoveredPeers.contains(peerID) {

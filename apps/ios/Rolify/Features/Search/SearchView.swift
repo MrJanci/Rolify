@@ -198,11 +198,7 @@ struct SearchView: View {
     private var combinedResults: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                let hasLocal = (results?.tracks.isEmpty == false)
-                    || (results?.artists.isEmpty == false)
-                    || (results?.albums.isEmpty == false)
                 let hasExternal = !externalResults.isEmpty
-                let nothingAtAll = !hasLocal && !hasExternal && !isLoadingExternal && results != nil
 
                 if let r = results {
                     if !r.tracks.isEmpty {
@@ -235,7 +231,6 @@ struct SearchView: View {
                 } else {
                     ytFallbackCard
                 }
-                _ = nothingAtAll  // unused-var quiet
 
                 Spacer().frame(height: 140)
             }
