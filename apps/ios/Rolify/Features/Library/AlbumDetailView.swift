@@ -86,6 +86,16 @@ struct AlbumDetailView: View {
                                 }
                                 .buttonStyle(.plain)
                             }
+
+                            // Discover-Section: Spotify-Album-Tracks die noch nicht in DB sind.
+                            // Tap auf Track → triggered Download mit Live-Progress.
+                            DiscoverTracksSection(
+                                title: "Mehr aus diesem Album",
+                                subtitle: "Tippen zum Herunterladen"
+                            ) {
+                                try await api.discoverAlbumTracks(albumId: albumId)
+                            }
+
                             Spacer().frame(height: 120)
                         }
                     }

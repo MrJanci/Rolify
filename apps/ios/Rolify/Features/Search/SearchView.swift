@@ -1,20 +1,7 @@
 import SwiftUI
 
-/// Live-progress fuer einen laufenden External-Download.
-/// Gehalten in SearchView pro Spotify-ID waehrend der scrape job laeuft.
-struct ActiveDownload: Hashable {
-    let spotifyId: String
-    let jobId: String
-    var status: String  // QUEUED / RUNNING / DONE / FAILED
-    var processed: Int
-    var total: Int
-
-    /// 0..1 fuer Progress-Bar. Indeterminate wenn total == 0.
-    var progress: Double? {
-        guard total > 0 else { return nil }
-        return min(1.0, Double(processed) / Double(total))
-    }
-}
+// ActiveDownload-Struct lebt jetzt in Shared/Components/DiscoverTracksSection.swift
+// damit AlbumDetailView + ArtistDetailView den gleichen Type nutzen koennen.
 
 struct SearchView: View {
     @State private var query = ""

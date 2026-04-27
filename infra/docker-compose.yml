@@ -90,9 +90,12 @@ services:
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID}
       SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}
       # Parallel-Downloads pro Job — hoeher = schneller, aber mehr Last
-      # auf YT-Rate-Limits + Pi-CPU. 12 ist safe mit Cookies.
-      CONCURRENCY_DOWNLOAD: ${CONCURRENCY_DOWNLOAD:-12}
-      CONCURRENCY_TRANSCODE: ${CONCURRENCY_TRANSCODE:-4}
+      # auf YT-Rate-Limits + Pi-CPU.
+      # Pi 4 (4 GB RAM): 4 download / 2 transcode = sweet spot
+      # Pi 5 (8 GB RAM): 6-8 download / 3-4 transcode geht auch
+      # Auf staerkerer x86-Hardware ruhig auf 12/4 hochziehen.
+      CONCURRENCY_DOWNLOAD: ${CONCURRENCY_DOWNLOAD:-4}
+      CONCURRENCY_TRANSCODE: ${CONCURRENCY_TRANSCODE:-2}
       # Last.fm-API-Key fuer dynamic playlists (refresh_dynamic_playlists.py)
       LASTFM_API_KEY: ${LASTFM_API_KEY:-}
     volumes:
@@ -103,6 +106,14 @@ services:
       # RW damit yt-dlp den cookies-file refreshen kann (sonst OSError: Read-only FS).
       # Session-cookies werden sowieso ueber die Zeit updated; kein security-issue.
       - ../scraping/.youtube-cookies.txt:/app/.youtube-cookies.txt
+    # Resource-Limits damit der Scraper den Pi nicht in die Knie zwingt.
+    # ffmpeg-Transcoding ist CPU-hungry, deshalb cpus < total cores.
+    # Wer auf x86-Server laeuft kann diese Limits hochsetzen oder entfernen.
+    deploy:
+      resources:
+        limits:
+          cpus: "${SCRAPER_CPU_LIMIT:-1.5}"
+          memory: ${SCRAPER_MEM_LIMIT:-1500M}
 
   backend:
     build:
@@ -137,6 +148,15 @@ services:
       SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}
     ports:
       - "${BACKEND_HOST_PORT:-3000}:3000"
+    # Backend reservierte Ressourcen, damit er reaktiv bleibt waehrend Scraper rumackert.
+    deploy:
+      resources:
+        limits:
+          cpus: "${BACKEND_CPU_LIMIT:-1.0}"
+          memory: ${BACKEND_MEM_LIMIT:-512M}
+        reservations:
+          cpus: "0.25"
+          memory: 128M
 
   nginx:
     image: nginx:alpine

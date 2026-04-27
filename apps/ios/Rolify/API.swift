@@ -328,6 +328,19 @@ final class API {
         try await request("/search/external/\(spotifyId)/download", method: "POST")
     }
 
+    /// Spotify-Album-Tracks fuer Album-Detail-Discover. Selbe Hit-Shape wie /search/external.
+    /// Returns [] bei API-Fehler (Spotify down etc.).
+    func discoverAlbumTracks(albumId: String) async throws -> [ExternalSearchResponse.Hit] {
+        let r: ExternalSearchResponse = try await requestPath("/albums/\(albumId)/discover", method: "GET")
+        return r.tracks
+    }
+
+    /// Spotify-Artist-Top-Tracks fuer Artist-Detail-Discover.
+    func discoverArtistTracks(artistId: String) async throws -> [ExternalSearchResponse.Hit] {
+        let r: ExternalSearchResponse = try await requestPath("/artists/\(artistId)/discover", method: "GET")
+        return r.tracks
+    }
+
     func myPlaylists() async throws -> [PlaylistSummary] {
         try await request("/playlists/me", method: "GET")
     }

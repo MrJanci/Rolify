@@ -62,7 +62,8 @@ async def claim_next_job(conn: psycopg.AsyncConnection) -> dict | None:
                   LIMIT 1
                   FOR UPDATE SKIP LOCKED
              )
-             RETURNING id, "playlistUrl", "processedTracks", "failedTracks", "totalTracks", "createdBy"
+             RETURNING id, "playlistUrl", "processedTracks", "failedTracks",
+                       "totalTracks", "createdBy", "resultPlaylistId"
         """)
         row = await cur.fetchone()
         await conn.commit()
@@ -75,6 +76,7 @@ async def claim_next_job(conn: psycopg.AsyncConnection) -> dict | None:
             "failedTracks": row[3] or 0,
             "totalTracks": row[4] or 0,
             "createdBy": row[5],
+            "resultPlaylistId": row[6],
         }
 
 
@@ -233,7 +235,8 @@ async def set_result_playlist_id(conn: psycopg.AsyncConnection, job_id: str, pla
 
 async def run_job(conn: psycopg.AsyncConnection, job_id: str, playlist_url: str,
                   prev_processed: int, prev_failed: int,
-                  created_by: str | None = None) -> None:
+                  created_by: str | None = None,
+                  result_playlist_id: str | None = None) -> None:
     job_log = log.bind(job_id=job_id, url=playlist_url)
     job_log.info("job_started", resume_from=prev_processed + prev_failed)
     try:
@@ -350,6 +353,20 @@ async def run_job(conn: psycopg.AsyncConnection, job_id: str, playlist_url: str,
             except Exception as e:
                 job_log.warn("playlist_creation_failed", error=str(e))
 
+        # Dynamic-Playlist-Linking: wenn der Job von refresh_dynamic_playlists.py
+        # kam, ist resultPlaylistId schon gesetzt (z.B. lastfm:global:daily).
+        # Wir verlinken dann ALLE erfolgreich gescrape ten Tracks (auch existing
+        # via dedupe geskippte) zur dyn-Playlist.
+        # Das gilt auch fuer yt:search:-Jobs (die haben should_create_playlist=False).
+        if result_playlist_id and not should_create_playlist:
+            try:
+                async with await psycopg.AsyncConnection.connect(acq_settings.database_url) as c:
+                    linked = await link_tracks_to_playlist(c, result_playlist_id, tracks)
+                    job_log.info("dyn_playlist_tracks_linked",
+                                 playlist_id=result_playlist_id, linked_tracks=linked)
+            except Exception as e:
+                job_log.warn("dyn_playlist_linking_failed", error=str(e))
+
         await complete_job(conn, job_id)
         job_log.info("job_done", processed=processed, failed=failed)
 
@@ -373,6 +390,7 @@ async def main():
                         conn, job["id"], job["playlistUrl"],
                         job["processedTracks"], job["failedTracks"],
                         created_by=job.get("createdBy"),
+                        result_playlist_id=job.get("resultPlaylistId"),
                     )
                 else:
                     await asyncio.sleep(POLL_INTERVAL_S)

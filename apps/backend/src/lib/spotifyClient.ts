@@ -79,3 +79,93 @@ export async function spotifySearchTracks(query: string, limit = 20): Promise<Sp
       previewUrl: t.preview_url ?? null,
     }));
 }
+
+/// Spotify-Artist-Top-Tracks fuer Discover-on-Artist-Detail.
+/// Sucht erst Artist via Search, nimmt besten Match, fetched dann top-tracks.
+/// Returns leere liste wenn Artist nicht gefunden.
+export async function spotifyArtistTopTracks(artistName: string, market = "CH"): Promise<SpotifyTrackHit[]> {
+  const token = await getToken();
+  // Search Artist
+  const searchParams = new URLSearchParams({
+    q: artistName,
+    type: "artist",
+    limit: "1",
+  });
+  const searchRes = await fetch(`https://api.spotify.com/v1/search?${searchParams.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!searchRes.ok) throw new Error(`Spotify artist search failed: ${searchRes.status}`);
+  const searchData = await searchRes.json() as { artists?: { items?: { id: string; name: string }[] } };
+  const artist = searchData.artists?.items?.[0];
+  if (!artist) return [];
+
+  // Fetch top-tracks
+  const topRes = await fetch(`https://api.spotify.com/v1/artists/${artist.id}/top-tracks?market=${market}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!topRes.ok) throw new Error(`Spotify top-tracks failed: ${topRes.status}`);
+  const topData = await topRes.json() as { tracks?: any[] };
+  const items = topData.tracks ?? [];
+  return items
+    .filter((t) => t && !t.is_local)
+    .map((t) => ({
+      spotifyId: t.id as string,
+      title: (t.name as string) ?? "",
+      artist: (t.artists ?? []).map((a: { name: string }) => a.name).join(", "),
+      album: (t.album?.name as string) ?? "",
+      albumId: (t.album?.id as string) ?? "",
+      coverUrl: t.album?.images?.[0]?.url ?? "",
+      durationMs: (t.duration_ms as number) ?? 0,
+      isrc: t.external_ids?.isrc ?? null,
+      previewUrl: t.preview_url ?? null,
+    }));
+}
+
+/// Discover Album-Tracks via Search "artist title". Filtert auf gleichen Album-Namen.
+/// Pragmatic-Approach: kein Album.spotifyId gespeichert, also Search-by-Name.
+export async function spotifyDiscoverAlbumTracks(albumTitle: string, artistName: string): Promise<SpotifyTrackHit[]> {
+  const token = await getToken();
+  // Erst Album finden (Search-by-Album)
+  const searchParams = new URLSearchParams({
+    q: `album:${albumTitle} artist:${artistName}`,
+    type: "album",
+    limit: "3",
+  });
+  const searchRes = await fetch(`https://api.spotify.com/v1/search?${searchParams.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!searchRes.ok) throw new Error(`Spotify album search failed: ${searchRes.status}`);
+  const searchData = await searchRes.json() as { albums?: { items?: { id: string; name: string; artists?: { name: string }[] }[] } };
+  const albums = searchData.albums?.items ?? [];
+  // Best-Match: gleiche Lower-Case Title + Artist-Name enthaelt
+  const wanted = albums.find((a) =>
+    a.name.toLowerCase().trim() === albumTitle.toLowerCase().trim()
+    && (a.artists ?? []).some((art) => art.name.toLowerCase().includes(artistName.toLowerCase().split(",")[0]?.trim() ?? ""))
+  ) ?? albums[0];
+  if (!wanted) return [];
+
+  // Fetch all album-tracks
+  const albumRes = await fetch(`https://api.spotify.com/v1/albums/${wanted.id}?market=CH`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!albumRes.ok) throw new Error(`Spotify album fetch failed: ${albumRes.status}`);
+  const albumData = await albumRes.json() as {
+    images?: { url: string }[];
+    tracks?: { items?: any[] };
+  };
+  const items = albumData.tracks?.items ?? [];
+  const cover = albumData.images?.[0]?.url ?? "";
+  return items
+    .filter((t) => t && !t.is_local)
+    .map((t) => ({
+      spotifyId: t.id as string,
+      title: (t.name as string) ?? "",
+      artist: (t.artists ?? []).map((a: { name: string }) => a.name).join(", "),
+      album: wanted.name,
+      albumId: wanted.id,
+      coverUrl: cover,
+      durationMs: (t.duration_ms as number) ?? 0,
+      isrc: t.external_ids?.isrc ?? null,
+      previewUrl: t.preview_url ?? null,
+    }));
+}

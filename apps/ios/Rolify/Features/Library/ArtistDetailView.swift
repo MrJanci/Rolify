@@ -119,6 +119,15 @@ struct ArtistDetailView: View {
                             }
                         }
 
+                        // Discover-Section: Spotify-Top-Tracks dieses Kuenstlers, die noch nicht in DB sind.
+                        // Tap → Download enqueued, Live-Progress, danach automatisch like.
+                        DiscoverTracksSection(
+                            title: "Beliebte Tracks",
+                            subtitle: "Tippen zum Herunterladen"
+                        ) {
+                            try await api.discoverArtistTracks(artistId: artistId)
+                        }
+
                         Spacer().frame(height: 120)
                     }
                 }
