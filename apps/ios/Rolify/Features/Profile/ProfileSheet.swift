@@ -15,9 +15,11 @@ struct ProfileSheet: View {
     // Inline-Sektionen (statt Sub-Sheets):
     @State private var expandScraping = false
     @State private var expandSettings = false
+    @State private var expandAutoPlaylists = false
 
     // Settings-State
     @State private var apiBase: String = UserDefaults.standard.string(forKey: "rolify.apiBase") ?? ""
+    @State private var crossfadeS: Double = UserDefaults.standard.double(forKey: "rolify.crossfadeSeconds")
 
     var body: some View {
         ZStack {
@@ -86,7 +88,22 @@ struct ProfileSheet: View {
                     }
                 }
 
-                // Section: Einstellungen
+                // Section: Auto-Playlists (Last.fm + TikTok dynamic)
+                sectionWrapper {
+                    Button { withAnimation(.easeInOut(duration: 0.2)) { expandAutoPlaylists.toggle() } } label: {
+                        sectionHeader(icon: "sparkles",
+                                       title: "Auto-Playlists",
+                                       expanded: expandAutoPlaylists)
+                    }
+                    .buttonStyle(.plain)
+
+                    if expandAutoPlaylists {
+                        Divider().background(DS.divider).padding(.leading, 52)
+                        AutoPlaylistsPanel()
+                    }
+                }
+
+                // Section: Einstellungen (mit Crossfade-Slider)
                 sectionWrapper {
                     Button { withAnimation(.easeInOut(duration: 0.2)) { expandSettings.toggle() } } label: {
                         sectionHeader(icon: "gearshape.fill",
@@ -133,7 +150,31 @@ struct ProfileSheet: View {
     // MARK: - Settings Content (inline, ehemals SettingsSheet)
 
     private var settingsContent: some View {
-        VStack(alignment: .leading, spacing: DS.m) {
+        VStack(alignment: .leading, spacing: DS.l) {
+            // Crossfade-Slider
+            VStack(alignment: .leading, spacing: DS.xs) {
+                HStack {
+                    Text("Crossfade")
+                        .font(DS.Font.footnote)
+                        .foregroundStyle(DS.textSecondary)
+                    Spacer()
+                    Text(crossfadeS == 0 ? "Aus" : "\(Int(crossfadeS))s")
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .foregroundStyle(crossfadeS > 0 ? DS.accent : DS.textTertiary)
+                }
+                Slider(value: $crossfadeS, in: 0...12, step: 1) { editing in
+                    if !editing {
+                        UserDefaults.standard.set(crossfadeS, forKey: "rolify.crossfadeSeconds")
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+                }
+                .tint(DS.accent)
+                Text("Sekunden Ueberblendung zwischen Tracks (Spotify-Style). 0 = aus.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(DS.textTertiary)
+            }
+
+            // API-URL
             VStack(alignment: .leading, spacing: DS.xs) {
                 Text("API Base-URL")
                     .font(DS.Font.footnote).foregroundStyle(DS.textSecondary)
@@ -149,25 +190,24 @@ struct ProfileSheet: View {
                     .keyboardType(.URL)
                 Text("Leer = Production. LAN-Dev: http://<pi-ip>:3000")
                     .font(DS.Font.footnote).foregroundStyle(DS.textTertiary)
-            }
-
-            Button {
-                let trimmed = apiBase.trimmingCharacters(in: .whitespacesAndNewlines)
-                if trimmed.isEmpty {
-                    UserDefaults.standard.removeObject(forKey: "rolify.apiBase")
-                } else {
-                    UserDefaults.standard.set(trimmed, forKey: "rolify.apiBase")
+                Button {
+                    let trimmed = apiBase.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if trimmed.isEmpty {
+                        UserDefaults.standard.removeObject(forKey: "rolify.apiBase")
+                    } else {
+                        UserDefaults.standard.set(trimmed, forKey: "rolify.apiBase")
+                    }
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                } label: {
+                    Text("API-URL speichern")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity).frame(height: 38)
+                        .background(DS.accent)
+                        .clipShape(Capsule())
                 }
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-            } label: {
-                Text("API-URL speichern")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity).frame(height: 38)
-                    .background(DS.accent)
-                    .clipShape(Capsule())
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, DS.l).padding(.vertical, DS.m)
     }

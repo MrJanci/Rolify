@@ -358,19 +358,39 @@ struct LibraryView: View {
     }
 
     private func playlistRow(_ p: PlaylistSummary) -> some View {
-        HStack(spacing: DS.m) {
-            CoverImage(
-                url: p.coverUrl.isEmpty ? nil : p.coverUrl,
-                cornerRadius: DS.radiusS,
-                placeholder: (p.isMixed ?? false) ? "sparkles" : "music.note.list"
-            )
+        let isDyn = p.isDynamic ?? false
+        return HStack(spacing: DS.m) {
+            // Auto-Playlist-Cover: Gradient + sparkles (sonst echtes cover)
+            ZStack {
+                if isDyn {
+                    LinearGradient(
+                        colors: [DS.accentBright, DS.accentDeep],
+                        startPoint: .topLeading, endPoint: .bottomTrailing
+                    )
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 22, weight: .black))
+                        .foregroundStyle(.white)
+                } else {
+                    CoverImage(
+                        url: p.coverUrl.isEmpty ? nil : p.coverUrl,
+                        cornerRadius: DS.radiusS,
+                        placeholder: (p.isMixed ?? false) ? "sparkles" : "music.note.list"
+                    )
+                }
+            }
             .frame(width: 56, height: 56)
+            .clipShape(RoundedRectangle(cornerRadius: DS.radiusS))
+
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     Text(p.name)
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(DS.textPrimary)
                         .lineLimit(1)
+                    if isDyn {
+                        Image(systemName: "bolt.fill").font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(DS.accent)
+                    }
                     if p.isCollaborative ?? false {
                         Image(systemName: "person.2.fill").font(.system(size: 10, weight: .bold)).foregroundStyle(DS.accent)
                     }
@@ -390,10 +410,12 @@ struct LibraryView: View {
     }
 
     private func subtitle(for p: PlaylistSummary) -> String {
-        var parts = ["Playlist"]
+        var parts: [String] = []
+        if p.isDynamic ?? false { parts.append("Auto") }
+        else { parts.append("Playlist") }
         if p.isCollaborative ?? false { parts.append("Kollab") }
         if p.isMixed ?? false { parts.append("Mix") }
-        if !(p.isOwned ?? true) { parts.append("geteilt") }
+        if !(p.isOwned ?? true) && !(p.isDynamic ?? false) { parts.append("geteilt") }
         return parts.joined(separator: " · ") + " · \(p.trackCount) Tracks"
     }
 

@@ -11,6 +11,8 @@ struct NowPlayingSheet: View {
     @State private var likeChecking = false
     @State private var api = API.shared
     @State private var lastCheckedTrackId: String?
+    @State private var showLyrics = false
+    @State private var lyricsPreview: String?  // erste plain-Zeile fuer compact-Card
 
     var body: some View {
         ZStack {
@@ -41,6 +43,12 @@ struct NowPlayingSheet: View {
 
                     Spacer()
 
+                    if let preview = lyricsPreview {
+                        lyricsCard(preview: preview, track: track)
+                            .padding(.horizontal, DS.xxl)
+                            .padding(.bottom, DS.s)
+                    }
+
                     bottomActions
                         .padding(.bottom, DS.xl)
                 }
@@ -57,16 +65,25 @@ struct NowPlayingSheet: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showLyrics) {
+            if let t = player.currentTrack {
+                LyricsView(trackId: t.trackId, title: t.title, artist: t.artist)
+            }
+        }
         .onChange(of: player.currentTrack?.trackId) { _, newId in
             if let id = newId, id != lastCheckedTrackId {
                 lastCheckedTrackId = id
-                Task { await refreshLikedStatus(trackId: id) }
+                Task {
+                    await refreshLikedStatus(trackId: id)
+                    await loadLyricsPreview(trackId: id)
+                }
             }
         }
         .task {
             if let id = player.currentTrack?.trackId {
                 lastCheckedTrackId = id
                 await refreshLikedStatus(trackId: id)
+                await loadLyricsPreview(trackId: id)
             }
         }
     }
@@ -77,6 +94,52 @@ struct NowPlayingSheet: View {
         if let status = try? await api.isTrackLiked(trackId) {
             self.isLiked = status
         }
+    }
+
+    private func loadLyricsPreview(trackId: String) async {
+        lyricsPreview = nil
+        guard let r = try? await api.fetchLyrics(trackId: trackId) else { return }
+        // Erste non-empty Zeile als Preview (entweder synced oder plain)
+        let text = r.lrcSynced ?? r.plain ?? ""
+        let firstLine = text.split(separator: "\n")
+            .map { String($0).replacingOccurrences(of: #"\[\d+:\d+(?:\.\d+)?\]"#, with: "", options: .regularExpression) }
+            .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty })
+        if let firstLine, !firstLine.isEmpty {
+            self.lyricsPreview = firstLine.trimmingCharacters(in: .whitespaces)
+        }
+    }
+
+    /// Compact-Card (Spotify-Style) — tap → fullscreen LyricsView
+    private func lyricsCard(preview: String, track: StreamManifest) -> some View {
+        Button { showLyrics = true } label: {
+            HStack(alignment: .top, spacing: DS.s) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Lyrics")
+                        .font(.system(size: 11, weight: .black))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .tracking(1)
+                    Text(preview)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer()
+                Image(systemName: "chevron.up.chevron.up.fill")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+            .padding(DS.m)
+            .frame(maxWidth: .infinity)
+            .background(
+                LinearGradient(
+                    colors: [DS.accentDeep, Color(red: 0.15, green: 0.20, blue: 0.50)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: DS.radiusM, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     private func toggleLike() {

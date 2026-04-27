@@ -36,6 +36,7 @@ model User {
   jamSessions        JamSession[]           @relation("JamHost")
   jamParticipations  JamParticipant[]
   playlistCollabs    PlaylistCollaborator[]
+  playlistSettings   UserPlaylistSettings[]
 }
 
 model Artist {
@@ -79,10 +80,24 @@ model Track {
   libraryEntries   LibraryTrack[]
   offlineLicenses  OfflineLicense[]
   jamSessions      JamSession[]     @relation("JamCurrentTrack")
+  lyrics           Lyrics?
 
   @@index([title])
   @@index([artistId])
   @@index([albumId])
+}
+
+// Lyrics-Cache via LRClib (gratis Time-Synced-Lyrics-API).
+// One-per-Track (1:1 Relation). Lazy-fetched bei erstem GET /tracks/:id/lyrics.
+model Lyrics {
+  trackId   String   @id
+  track     Track    @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  lrcSynced String?  // LRC-Format mit timestamps "[mm:ss.xx]text"
+  plain     String?  // plain-text fallback (kein time-sync)
+  source    String   @default("lrclib") // "lrclib" / "manual" / "none"
+  cachedAt  DateTime @default(now())
+
+  @@index([cachedAt])
 }
 
 model Playlist {
@@ -98,12 +113,31 @@ model Playlist {
   // Mixed-Playlist: regeneriert sich taeglich (KI/Algo)
   isMixed       Boolean                @default(false)
   mixSeedId     String?                // Seed-Artist/Track fuer Mix-Algo
+  // Dynamic-Playlist (Auto-aktualisiert aus externer Quelle)
+  isDynamic     Boolean                @default(false)
+  dynamicSource String?                @unique // "lastfm:global:daily" / "tiktok:trending:de" / etc.
+  rotationMode  String                 @default("rotate") // "rotate" | "accumulate"
+  refreshIntervalH Int                 @default(24)
+  lastRefreshedAt DateTime?
   createdAt     DateTime               @default(now())
   updatedAt     DateTime               @updatedAt
   tracks        PlaylistTrack[]
   collaborators PlaylistCollaborator[]
 
   @@index([userId])
+  @@index([isDynamic])
+}
+
+// Pro-User Toggle ob eine Dynamic-Playlist (global) in seiner Library sichtbar ist.
+// Dynamic-Playlists existieren GLOBAL (1× pro source), per-user wird nur sichtbarkeit gesteuert.
+model UserPlaylistSettings {
+  userId  String
+  source  String  // matched gegen Playlist.dynamicSource
+  enabled Boolean @default(true)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, source])
+  @@index([source])
 }
 
 model PlaylistCollaborator {

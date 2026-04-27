@@ -84,6 +84,8 @@ struct PlaylistSummary: Codable, Identifiable, Hashable {
     var isCollaborative: Bool? = false
     var isMixed: Bool? = false
     var isOwned: Bool? = true
+    var isDynamic: Bool? = false
+    var dynamicSource: String? = nil
 }
 
 struct PlaylistDetail: Codable, Hashable {
@@ -542,6 +544,94 @@ final class API {
 
     func endJam(code: String) async throws {
         try await requestVoid("/jam/\(code)", method: "DELETE")
+    }
+
+    // MARK: Lyrics (LRClib-Cache)
+
+    struct LyricsResponse: Codable {
+        let lrcSynced: String?
+        let plain: String?
+        let hasSync: Bool
+        let source: String
+    }
+
+    func fetchLyrics(trackId: String) async throws -> LyricsResponse {
+        try await request("/tracks/\(trackId)/lyrics", method: "GET")
+    }
+
+    // MARK: Dynamic Auto-Playlists
+
+    struct DynamicSource: Codable, Identifiable, Hashable {
+        let id: String
+        let name: String
+        let description: String?
+        let coverUrl: String?
+        let source: String
+        let rotationMode: String
+        let refreshIntervalH: Int
+        let lastRefreshedAt: String?
+        let trackCount: Int
+        let enabled: Bool
+    }
+
+    struct DynamicSourcesResponse: Codable {
+        let sources: [DynamicSource]
+    }
+
+    func dynamicSources() async throws -> [DynamicSource] {
+        let r: DynamicSourcesResponse = try await request("/dynamic/sources", method: "GET")
+        return r.sources
+    }
+
+    func toggleDynamicSource(source: String, enabled: Bool) async throws {
+        struct Body: Encodable { let enabled: Bool }
+        let encoded = source.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? source
+        try await requestVoid("/dynamic/sources/\(encoded)/toggle", method: "POST", body: Body(enabled: enabled))
+    }
+
+    func updateDynamicSource(source: String, rotationMode: String? = nil, refreshIntervalH: Int? = nil) async throws {
+        struct Body: Encodable { let rotationMode: String?; let refreshIntervalH: Int? }
+        let encoded = source.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? source
+        try await requestVoid("/dynamic/sources/\(encoded)", method: "PATCH",
+                               body: Body(rotationMode: rotationMode, refreshIntervalH: refreshIntervalH))
+    }
+
+    // MARK: Offline-Download
+
+    struct OfflineLicenseResponse: Codable {
+        let trackId: String
+        let downloadUrl: String
+        let masterKeyHex: String
+        let expiresAt: String
+        let quotaUsed: Int
+        let quotaTotal: Int
+    }
+
+    struct OfflineLicensesListResponse: Codable {
+        struct Item: Codable, Identifiable, Hashable {
+            let trackId: String
+            let deviceId: String
+            let expiresAt: String
+            let issuedAt: String
+            var id: String { trackId + "_" + deviceId }
+        }
+        let licenses: [Item]
+        let quota: Int
+    }
+
+    func requestOfflineLicense(trackId: String) async throws -> OfflineLicenseResponse {
+        struct Body: Encodable { let trackId: String; let deviceId: String }
+        return try await request("/offline/licenses", method: "POST",
+                                  body: Body(trackId: trackId, deviceId: deviceId))
+    }
+
+    func listOfflineLicenses() async throws -> OfflineLicensesListResponse {
+        try await request("/offline/licenses?deviceId=\(deviceId)", method: "GET")
+    }
+
+    func revokeOfflineLicense(trackId: String) async throws {
+        let encoded = deviceId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? deviceId
+        try await requestVoid("/offline/licenses/\(trackId)?deviceId=\(encoded)", method: "DELETE")
     }
 
     // MARK: Request-raw helpers

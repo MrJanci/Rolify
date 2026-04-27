@@ -75,30 +75,53 @@ async function canWrite(playlistId: string, userId: string): Promise<{ ok: boole
 export default async function playlistRoutes(app: FastifyInstance) {
   app.addHook("preHandler", app.requireAuth);
 
-  // Liste der eigenen Playlists + Collab-Playlists
+  // Liste der eigenen Playlists + Collab-Playlists + sichtbare Dynamic-Playlists
   app.get("/playlists/me", async (req) => {
     const owned = await prisma.playlist.findMany({
-      where: { userId: req.user.sub },
+      where: { userId: req.user.sub, isDynamic: false },
       orderBy: { updatedAt: "desc" },
       select: {
         id: true, name: true, description: true, coverUrl: true,
-        isPublic: true, isCollaborative: true, isMixed: true,
+        isPublic: true, isCollaborative: true, isMixed: true, isDynamic: true,
+        dynamicSource: true,
         updatedAt: true, userId: true,
         _count: { select: { tracks: true } },
       },
     });
     const collab = await prisma.playlist.findMany({
-      where: { collaborators: { some: { userId: req.user.sub } } },
+      where: { collaborators: { some: { userId: req.user.sub } }, isDynamic: false },
       orderBy: { updatedAt: "desc" },
       select: {
         id: true, name: true, description: true, coverUrl: true,
-        isPublic: true, isCollaborative: true, isMixed: true,
+        isPublic: true, isCollaborative: true, isMixed: true, isDynamic: true,
+        dynamicSource: true,
         updatedAt: true, userId: true,
         _count: { select: { tracks: true } },
         user: { select: { displayName: true } },
       },
     });
-    const all = [...owned, ...collab].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+    // Dynamic Playlists (global): includieren wenn user nicht explicit disabled
+    const userSettings = await prisma.userPlaylistSettings.findMany({
+      where: { userId: req.user.sub, enabled: false },
+      select: { source: true },
+    });
+    const disabledSources = new Set(userSettings.map((s) => s.source));
+    const dynamic = await prisma.playlist.findMany({
+      where: {
+        isDynamic: true,
+        dynamicSource: { notIn: [...disabledSources] },
+      },
+      orderBy: { updatedAt: "desc" },
+      select: {
+        id: true, name: true, description: true, coverUrl: true,
+        isPublic: true, isCollaborative: true, isMixed: true, isDynamic: true,
+        dynamicSource: true,
+        updatedAt: true, userId: true,
+        _count: { select: { tracks: true } },
+      },
+    });
+
+    const all = [...owned, ...collab, ...dynamic].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
     return all.map((p) => ({
       id: p.id,
       name: p.name,
@@ -107,7 +130,9 @@ export default async function playlistRoutes(app: FastifyInstance) {
       isPublic: p.isPublic,
       isCollaborative: p.isCollaborative,
       isMixed: p.isMixed,
-      isOwned: p.userId === req.user.sub,
+      isDynamic: p.isDynamic,
+      dynamicSource: p.dynamicSource,
+      isOwned: !p.isDynamic && p.userId === req.user.sub,
       updatedAt: p.updatedAt,
       trackCount: p._count.tracks,
     }));

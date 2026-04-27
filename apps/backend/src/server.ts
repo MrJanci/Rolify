@@ -26,6 +26,9 @@ import browseRoutes from "./routes/browse.js";
 import streamRoutes from "./routes/stream.js";
 import jamRoutes from "./routes/jam.js";
 import adminRoutes from "./routes/admin.js";
+import dynamicRoutes from "./routes/dynamic.js";
+import lyricsRoutes from "./routes/lyrics.js";
+import offlineRoutes from "./routes/offline.js";
 
 async function buildServer() {
   const app = Fastify({
@@ -73,6 +76,9 @@ async function buildServer() {
   await app.register(streamRoutes);
   await app.register(jamRoutes);
   await app.register(adminRoutes);
+  await app.register(dynamicRoutes);
+  await app.register(lyricsRoutes);
+  await app.register(offlineRoutes);
 
   app.addHook("onClose", async () => {
     await prisma.$disconnect();

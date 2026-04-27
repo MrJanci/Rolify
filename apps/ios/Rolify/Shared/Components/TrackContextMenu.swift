@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Context-Menu (lange halten) auf einer TrackRow.
-/// Actions: Zu Playlist, Zur Warteschlange, Album/Artist oeffnen, Link kopieren.
+/// Actions: Zu Playlist, Zur Warteschlange, Offline-Toggle, Album/Artist oeffnen, Link kopieren.
 struct TrackContextMenu: ViewModifier {
     let queueTrack: QueueTrack
     let artistId: String?
@@ -9,6 +9,7 @@ struct TrackContextMenu: ViewModifier {
     @Binding var showAddToPlaylist: Bool
     @Binding var pendingTrackId: String
     @Binding var pendingTrackTitle: String
+    @State private var cache = OfflineCache.shared
 
     func body(content: Content) -> some View {
         content.contextMenu {
@@ -25,6 +26,29 @@ struct TrackContextMenu: ViewModifier {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             } label: {
                 Label("Zur Warteschlange", systemImage: "text.line.last.and.arrowtriangle.forward")
+            }
+
+            // Offline-Toggle
+            if cache.isAvailable(trackId: queueTrack.id) {
+                Button(role: .destructive) {
+                    Task { await cache.remove(trackId: queueTrack.id) }
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                } label: {
+                    Label("Offline entfernen", systemImage: "checkmark.circle.fill")
+                }
+            } else {
+                Button {
+                    Task {
+                        do {
+                            try await cache.download(trackId: queueTrack.id)
+                            UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        } catch {
+                            UINotificationFeedbackGenerator().notificationOccurred(.error)
+                        }
+                    }
+                } label: {
+                    Label("Fuer offline runterladen", systemImage: "arrow.down.circle")
+                }
             }
 
             Divider()
