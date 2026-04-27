@@ -41,8 +41,6 @@ struct LyricsView: View {
                 syncedLyricsScroll
             } else if let lyrics, let plain = lyrics.plain, !plain.isEmpty {
                 plainLyricsScroll(plain)
-            } else if let _ = error ?? lyrics.map({ _ in nil }) {
-                emptyState
             } else {
                 emptyState
             }

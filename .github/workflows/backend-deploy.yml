@@ -38,19 +38,25 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: SSH deploy
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script: |
-            cd /opt/rolify/infra
-            docker compose pull backend
-            docker compose up -d backend
-            docker compose exec -T backend pnpm prisma migrate deploy
+  # SSH-Auto-Deploy ist deaktiviert. Wer es nutzen will, setzt die drei Secrets
+  # VPS_HOST / VPS_USER / VPS_SSH_KEY im Repo (Settings -> Secrets and variables
+  # -> Actions) und kommentiert den deploy-Job unten ein. Standardmaessig deployt
+  # der Maintainer manuell per `git pull && docker compose up -d --build` auf
+  # dem Pi (siehe README.md "Update-Workflow").
+  #
+  # deploy:
+  #   needs: build-and-push
+  #   runs-on: ubuntu-24.04
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: SSH deploy
+  #       uses: appleboy/ssh-action@v1.2.0
+  #       with:
+  #         host: ${{ secrets.VPS_HOST }}
+  #         username: ${{ secrets.VPS_USER }}
+  #         key: ${{ secrets.VPS_SSH_KEY }}
+  #         script: |
+  #           cd /opt/rolify/infra
+  #           docker compose pull backend
+  #           docker compose up -d backend
+  #           docker compose exec -T backend pnpm prisma migrate deploy

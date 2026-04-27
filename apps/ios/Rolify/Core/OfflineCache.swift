@@ -86,7 +86,7 @@ final class OfflineCache {
             downloadedAt: Date(),
             expiresAt: expiresAt,
             masterKeyHex: lic.masterKeyHex,
-            sizeBytes: data.count,
+            sizeBytes: data.count
         )
         entries[trackId] = entry
         saveIndex()
