@@ -42,7 +42,7 @@ struct ArtistDetailView: View {
                                     guard let first = detail.topTracks.first else { return }
                                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                     let q = detail.topTracks.map { QueueTrack($0) }
-                                    Task { await player.play(queue: q, startingAt: first.id) }
+                                    Task { await player.play(queue: q, startingAt: first.id, context: Player.PlayContext(type: "artist", id: artistId)) }
                                 } label: {
                                     HStack(spacing: 8) {
                                         Image(systemName: "play.fill").font(.system(size: 16, weight: .black))
@@ -65,7 +65,7 @@ struct ArtistDetailView: View {
                                     Button {
                                         UIImpactFeedbackGenerator(style: .soft).impactOccurred()
                                         let q = detail.topTracks.map { QueueTrack($0) }
-                                        Task { await player.play(queue: q, startingAt: t.id) }
+                                        Task { await player.play(queue: q, startingAt: t.id, context: Player.PlayContext(type: "artist", id: artistId)) }
                                     } label: {
                                         HStack(spacing: DS.m) {
                                             CoverImage(url: t.coverUrl, cornerRadius: DS.radiusS)

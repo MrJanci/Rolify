@@ -138,7 +138,7 @@ struct PlaylistDetailView: View {
                             let q = d.tracks.map { QueueTrack($0) }
                             PlaybackQueue.shared.shuffle = true
                             guard let first = q.randomElement() else { return }
-                            Task { await player.play(queue: q, startingAt: first.id) }
+                            Task { await player.play(queue: q, startingAt: first.id, context: Player.PlayContext(type: "playlist", id: playlistId)) }
                         } label: {
                             Image(systemName: "shuffle")
                                 .font(.system(size: 22, weight: .semibold))
@@ -154,7 +154,7 @@ struct PlaylistDetailView: View {
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                             let q = d.tracks.map { QueueTrack($0) }
                             PlaybackQueue.shared.shuffle = false
-                            Task { await player.play(queue: q, startingAt: first.id) }
+                            Task { await player.play(queue: q, startingAt: first.id, context: Player.PlayContext(type: "playlist", id: playlistId)) }
                         } label: {
                             Image(systemName: "play.fill")
                                 .font(.system(size: 24, weight: .black))
@@ -201,7 +201,7 @@ struct PlaylistDetailView: View {
         Button {
             UIImpactFeedbackGenerator(style: .soft).impactOccurred()
             let q = (detail?.tracks ?? []).map { QueueTrack($0) }
-            Task { await player.play(queue: q, startingAt: t.id) }
+            Task { await player.play(queue: q, startingAt: t.id, context: Player.PlayContext(type: "playlist", id: playlistId)) }
         } label: {
             HStack(spacing: DS.m) {
                 CoverImage(url: t.coverUrl, cornerRadius: DS.radiusS)

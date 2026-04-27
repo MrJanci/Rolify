@@ -37,6 +37,7 @@ model User {
   jamParticipations  JamParticipant[]
   playlistCollabs    PlaylistCollaborator[]
   playlistSettings   UserPlaylistSettings[]
+  playHistory        PlayHistory[]
 }
 
 model Artist {
@@ -81,6 +82,7 @@ model Track {
   offlineLicenses  OfflineLicense[]
   jamSessions      JamSession[]     @relation("JamCurrentTrack")
   lyrics           Lyrics?
+  playHistory      PlayHistory[]
 
   @@index([title])
   @@index([artistId])
@@ -178,6 +180,26 @@ model LibraryTrack {
 
   @@id([userId, trackId])
   @@index([userId, savedAt])
+}
+
+/// PlayHistory: pro track-Start ein Eintrag. Wird vom iOS-Player gepostet
+/// sobald ein Track abgespielt startet (>= 5s Listening-Time, sonst Skip).
+/// Genutzt fuer Home-Shelf "Jump back in" + spaeter Discover-Algos.
+/// Auto-Cleanup: pro User max 200 Entries (oldest werden geloescht).
+model PlayHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  trackId   String
+  // Wo der Track herkam — fuer "Jump back in" um zu Album/Playlist/Artist zurueckzuspringen.
+  // Format: "album:<id>" / "playlist:<id>" / "artist:<id>" / "search" / "queue"
+  contextType String?
+  contextId   String?
+  playedAt  DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  track     Track    @relation(fields: [trackId], references: [id])
+
+  @@index([userId, playedAt])
+  @@index([userId, contextType, contextId])
 }
 
 model SavedAlbum {

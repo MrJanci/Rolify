@@ -41,8 +41,27 @@ struct TrackListItem: Codable, Identifiable, Hashable {
 }
 
 struct BrowseHomeResponse: Codable {
+    let quickAccess: [QuickAccessTile]?
     let shelves: [HomeShelf]?
     let tracks: [TrackListItem]   // legacy/fallback
+}
+
+/// Spotify-Style Quick-Access-Tile (2x4 Grid oben in Home).
+struct QuickAccessTile: Codable, Identifiable, Hashable {
+    let id: String
+    let kind: String  // "playlist" | "album" | "liked" | "artist"
+    let title: String
+    let coverUrl: String
+    let subtitle: String?
+}
+
+/// Recommended Station (Last.fm-based artist-radio).
+struct StationItem: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let subtitle: String
+    let coverUrl: String
+    let tintHex: String
 }
 
 struct HomeShelf: Codable, Identifiable, Hashable {
@@ -52,6 +71,7 @@ struct HomeShelf: Codable, Identifiable, Hashable {
     let tracks: [TrackListItem]?
     let playlists: [PlaylistSummary]?
     let albums: [AlbumListItem]?
+    let stations: [StationItem]?
 }
 
 struct ArtistListItem: Codable, Identifiable, Hashable {
@@ -264,6 +284,16 @@ final class API {
 
     func browseHome() async throws -> BrowseHomeResponse {
         try await request("/browse/home", method: "GET")
+    }
+
+    /// Track-Start melden fuer "Jump back in" Home-Shelf.
+    /// Backend dedupes identical trackIds innerhalb 30s.
+    /// Fire-and-forget — Errors werden vom Caller ignoriert.
+    func logPlayHistory(trackId: String, contextType: String? = nil, contextId: String? = nil) async throws {
+        struct Body: Encodable { let trackId: String; let contextType: String?; let contextId: String? }
+        struct Resp: Codable { let status: String; let id: String? }
+        let _: Resp = try await request("/play-history", method: "POST",
+                                        body: Body(trackId: trackId, contextType: contextType, contextId: contextId))
     }
 
     struct AllTracksResponse: Codable { let tracks: [TrackListItem] }

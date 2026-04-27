@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { prisma } from "../lib/prisma.js";
 import { env } from "../config.js";
+import { getRecommendedStations } from "../lib/stations.js";
 
 function publicCoverUrl(storedUrl: string | null | undefined): string {
   if (!storedUrl) return "";
@@ -9,13 +10,32 @@ function publicCoverUrl(storedUrl: string | null | undefined): string {
   return `${base.replace(/\/$/, "")}${storedUrl}`;
 }
 
+/// Quick-Access-Item: kompakte 2x4-Grid-Tile auf Spotify-Home.
+/// kind = "playlist" | "album" | "liked" | "artist"
+interface QuickAccessItem {
+  id: string;
+  kind: "playlist" | "album" | "liked" | "artist";
+  title: string;
+  coverUrl: string;
+  subtitle?: string;
+}
+
 export default async function browseRoutes(app: FastifyInstance) {
   app.addHook("preHandler", app.requireAuth);
 
   app.get("/browse/home", async (req) => {
     const userId = req.user.sub;
 
-    const [recentTracks, userPlaylists, topAlbums] = await Promise.all([
+    const [
+      recentTracks,
+      userPlaylists,
+      topAlbums,
+      likedCount,
+      savedAlbums,
+      recentHistory,
+      stations,
+    ] = await Promise.all([
+      // Recently-added Tracks (existing shelf)
       prisma.track.findMany({
         orderBy: { createdAt: "desc" },
         take: 10,
@@ -25,6 +45,7 @@ export default async function browseRoutes(app: FastifyInstance) {
           album: { select: { id: true, title: true, coverUrl: true } },
         },
       }),
+      // User-Playlists (recently updated, top 10)
       prisma.playlist.findMany({
         where: { userId },
         orderBy: { updatedAt: "desc" },
@@ -34,6 +55,7 @@ export default async function browseRoutes(app: FastifyInstance) {
           _count: { select: { tracks: true } },
         },
       }),
+      // Top albums by release-year (existing)
       prisma.album.findMany({
         orderBy: { releaseYear: "desc" },
         take: 10,
@@ -42,24 +64,150 @@ export default async function browseRoutes(app: FastifyInstance) {
           artist: { select: { name: true } },
         },
       }),
+      // Liked-songs count for the special "Liked Songs" tile
+      prisma.libraryTrack.count({ where: { userId } }),
+      // Recently-saved Albums for Quick-Access
+      prisma.savedAlbum.findMany({
+        where: { userId },
+        orderBy: { savedAt: "desc" },
+        take: 4,
+        include: {
+          album: {
+            select: {
+              id: true, title: true, coverUrl: true,
+              artist: { select: { name: true } },
+            },
+          },
+        },
+      }),
+      // Recently-played fuer Jump-Back-In Shelf
+      prisma.playHistory.findMany({
+        where: { userId },
+        orderBy: { playedAt: "desc" },
+        take: 50, // genug um auf 6 unique Albums/Playlists zu reduzieren
+        include: {
+          track: {
+            select: {
+              id: true, title: true,
+              album: { select: { id: true, title: true, coverUrl: true } },
+              artist: { select: { name: true } },
+            },
+          },
+        },
+      }),
+      // Recommended Stations (Last.fm-based, in-memory cached)
+      getRecommendedStations(userId).catch(() => []),
     ]);
 
-    const shelves = [
-      {
-        id: "recent",
-        title: "Neu hinzugefuegt",
-        kind: "tracks" as const,
-        tracks: recentTracks.map((t) => ({
-          id: t.id,
-          title: t.title,
-          artist: t.artist.name,
-          album: t.album.title,
-          albumId: t.album.id,
-          coverUrl: publicCoverUrl(t.album.coverUrl),
-          durationMs: t.durationMs,
+    // ---- Quick-Access-Grid (8 Items: Liked Songs als #1 wenn nicht leer + 7 weitere)
+    const quickAccess: QuickAccessItem[] = [];
+    if (likedCount > 0) {
+      quickAccess.push({
+        id: "liked",
+        kind: "liked",
+        title: "Liked Songs",
+        coverUrl: "",  // Frontend rendert ein Heart-Gradient
+        subtitle: `${likedCount} Tracks`,
+      });
+    }
+    // Mische top 4 Playlists + top 4 Saved Albums (insgesamt max 8 inkl. Liked)
+    const playlistTiles = userPlaylists.slice(0, 4).map<QuickAccessItem>((p) => ({
+      id: p.id,
+      kind: "playlist",
+      title: p.name,
+      coverUrl: publicCoverUrl(p.coverUrl),
+    }));
+    const albumTiles = savedAlbums.slice(0, 4).map<QuickAccessItem>((sa) => ({
+      id: sa.album.id,
+      kind: "album",
+      title: sa.album.title,
+      coverUrl: publicCoverUrl(sa.album.coverUrl),
+      subtitle: sa.album.artist.name,
+    }));
+    // Interleave: Playlist, Album, Playlist, Album, ... bis max 8 total inkl. Liked
+    const remaining = 8 - quickAccess.length;
+    const interleaved: QuickAccessItem[] = [];
+    for (let i = 0; i < Math.max(playlistTiles.length, albumTiles.length); i++) {
+      if (playlistTiles[i]) interleaved.push(playlistTiles[i]!);
+      if (albumTiles[i]) interleaved.push(albumTiles[i]!);
+    }
+    quickAccess.push(...interleaved.slice(0, remaining));
+
+    // ---- Jump-Back-In: dedupe nach Album/Playlist auf 6 Items
+    const seenAlbums = new Set<string>();
+    const jumpBackIn: Array<{
+      id: string;
+      kind: "album" | "playlist";
+      title: string;
+      subtitle: string;
+      coverUrl: string;
+    }> = [];
+    for (const h of recentHistory) {
+      const albId = h.track.album.id;
+      // contextType "playlist" -> spaeter Phase wenn Playlist auch in History (PlaylistDetail-Player setzt context)
+      if (!seenAlbums.has(albId)) {
+        seenAlbums.add(albId);
+        jumpBackIn.push({
+          id: albId,
+          kind: "album",
+          title: h.track.album.title,
+          subtitle: h.track.artist.name,
+          coverUrl: publicCoverUrl(h.track.album.coverUrl),
+        });
+      }
+      if (jumpBackIn.length >= 6) break;
+    }
+
+    // ---- Shelves zusammenstellen (in Spotify-typischer Reihenfolge)
+    const shelves: Array<Record<string, unknown>> = [];
+
+    if (jumpBackIn.length > 0) {
+      shelves.push({
+        id: "jump_back_in",
+        title: "Springe wieder rein",
+        kind: "albums" as const,
+        albums: jumpBackIn.map((j) => ({
+          id: j.id,
+          title: j.title,
+          artist: j.subtitle,
+          coverUrl: j.coverUrl,
+          releaseYear: 0,
         })),
-      },
-      {
+      });
+    }
+
+    if (stations.length > 0) {
+      shelves.push({
+        id: "stations",
+        title: "Empfohlene Stationen",
+        kind: "stations" as const,
+        stations: stations.map((s) => ({
+          id: s.id,
+          name: s.name,
+          subtitle: s.subtitle,
+          coverUrl: publicCoverUrl(s.coverUrl),
+          tintHex: s.tintHex,
+        })),
+      });
+    }
+
+    shelves.push({
+      id: "recent_tracks",
+      title: "Neu hinzugefuegt",
+      kind: "tracks" as const,
+      tracks: recentTracks.map((t) => ({
+        id: t.id,
+        title: t.title,
+        artist: t.artist.name,
+        album: t.album.title,
+        albumId: t.album.id,
+        coverUrl: publicCoverUrl(t.album.coverUrl),
+        durationMs: t.durationMs,
+      })),
+    });
+
+    if (userPlaylists.length > 0) {
+      shelves.push({
         id: "playlists",
         title: "Deine Playlists",
         kind: "playlists" as const,
@@ -71,9 +219,12 @@ export default async function browseRoutes(app: FastifyInstance) {
           isPublic: p.isPublic,
           trackCount: p._count.tracks,
         })),
-      },
-      {
-        id: "albums",
+      });
+    }
+
+    if (topAlbums.length > 0) {
+      shelves.push({
+        id: "top_albums",
         title: "Alben",
         kind: "albums" as const,
         albums: topAlbums.map((a) => ({
@@ -83,11 +234,15 @@ export default async function browseRoutes(app: FastifyInstance) {
           coverUrl: publicCoverUrl(a.coverUrl),
           releaseYear: a.releaseYear,
         })),
-      },
-    ];
+      });
+    }
 
-    // Legacy "tracks" Feld fuer backwards-compat (v0.8 client nutzt das noch)
-    return { shelves, tracks: shelves[0]?.tracks ?? [] };
+    return {
+      quickAccess,
+      shelves,
+      // Legacy-Felder fuer alte iOS-Clients (v0.16/v0.17)
+      tracks: shelves.find((s) => s.id === "recent_tracks")?.tracks ?? [],
+    };
   });
 
   /// POST /browse/mixed — generiert Mix-Playlist aus Liked-Tracks + ihre Artists.

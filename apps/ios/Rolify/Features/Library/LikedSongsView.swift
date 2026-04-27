@@ -72,7 +72,7 @@ struct LikedSongsView: View {
                 guard let first = tracks.first else { return }
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 let q = tracks.map { QueueTrack(id: $0.id, title: $0.title, artist: $0.artist, coverUrl: $0.coverUrl, durationMs: $0.durationMs) }
-                Task { await player.play(queue: q, startingAt: first.id) }
+                Task { await player.play(queue: q, startingAt: first.id, context: Player.PlayContext(type: "liked", id: nil)) }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "play.fill").font(.system(size: 16, weight: .black))
@@ -97,7 +97,7 @@ struct LikedSongsView: View {
         return Button {
             UIImpactFeedbackGenerator(style: .soft).impactOccurred()
             let q = tracks.map { QueueTrack(id: $0.id, title: $0.title, artist: $0.artist, coverUrl: $0.coverUrl, durationMs: $0.durationMs) }
-            Task { await player.play(queue: q, startingAt: t.id) }
+            Task { await player.play(queue: q, startingAt: t.id, context: Player.PlayContext(type: "liked", id: nil)) }
         } label: {
             HStack(spacing: DS.m) {
                 CoverImage(url: t.coverUrl, cornerRadius: DS.radiusS)

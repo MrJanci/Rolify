@@ -36,7 +36,7 @@ struct AlbumDetailView: View {
                                     guard let first = detail.tracks.first else { return }
                                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                     let q = detail.tracks.map { QueueTrack($0) }
-                                    Task { await player.play(queue: q, startingAt: first.id) }
+                                    Task { await player.play(queue: q, startingAt: first.id, context: Player.PlayContext(type: "album", id: albumId)) }
                                 } label: {
                                     HStack(spacing: 8) {
                                         Image(systemName: "play.fill").font(.system(size: 16, weight: .black))
@@ -59,7 +59,7 @@ struct AlbumDetailView: View {
                                 Button {
                                     UIImpactFeedbackGenerator(style: .soft).impactOccurred()
                                     let q = detail.tracks.map { QueueTrack($0) }
-                                    Task { await player.play(queue: q, startingAt: t.id) }
+                                    Task { await player.play(queue: q, startingAt: t.id, context: Player.PlayContext(type: "album", id: albumId)) }
                                 } label: {
                                     HStack(spacing: DS.m) {
                                         Text("\(t.trackNumber)")

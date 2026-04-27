@@ -48,10 +48,19 @@ final class Player {
 
     /// Startet Playback einer kompletten Queue. Wiring fuer onAdvance/onRewind
     /// setzt Player auf Queue.advance/rewind (Lockscreen + End-of-Track).
-    func play(queue tracks: [QueueTrack], startingAt trackId: String) async {
+    func play(queue tracks: [QueueTrack], startingAt trackId: String, context: PlayContext? = nil) async {
         PlaybackQueue.shared.setQueue(tracks, startingAt: trackId)
+        playContext = context
         await play(trackId: trackId)
     }
+
+    /// Wo der Track herkam — fuer PlayHistory + spaeter "Jump back in".
+    /// Frei-Form-Tag wie "album:abc123" / "playlist:xyz" / "search" / "queue".
+    struct PlayContext: Sendable {
+        let type: String   // "album" | "playlist" | "artist" | "search" | "liked" | "discover" | "queue"
+        let id: String?
+    }
+    var playContext: PlayContext? = nil
 
     /// Wird beim End-of-Track vom AVPlayerItemDidPlayToEndTime-Observer aufgerufen.
     private func advanceQueue() async {
@@ -96,6 +105,17 @@ final class Player {
             player.play()
             isPlaying = true
             updatePlaybackRateInfo(rate: 1.0)
+
+            // PlayHistory-Tracking fuer "Jump back in" Home-Shelf.
+            // Async fire-and-forget — Backend macht 30s-Dedupe selber.
+            let ctx = playContext
+            Task.detached(priority: .background) {
+                try? await API.shared.logPlayHistory(
+                    trackId: trackId,
+                    contextType: ctx?.type,
+                    contextId: ctx?.id
+                )
+            }
 
             // Jam-Broadcast (WG + BT)
             let jam = JamOrchestrator.shared
