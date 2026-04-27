@@ -39,6 +39,7 @@ export default async function artistRoutes(app: FastifyInstance) {
         id: t.id,
         title: t.title,
         durationMs: t.durationMs,
+        trackNumber: t.trackNumber,    // iOS AlbumTrackItem expects this (required)
         artist: artist.name,
         artistId: artist.id,
         album: t.album.title,

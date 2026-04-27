@@ -210,9 +210,15 @@ struct SearchView: View {
     private var combinedResults: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
+                let hasLocal = (results?.tracks.isEmpty == false)
+                    || (results?.artists.isEmpty == false)
+                    || (results?.albums.isEmpty == false)
+                let hasExternal = !externalResults.isEmpty
+                let nothingAtAll = !hasLocal && !hasExternal && !isLoadingExternal && results != nil
+
                 if let r = results {
                     if !r.tracks.isEmpty {
-                        SectionHeader(title: "Songs")
+                        SectionHeader(title: "In deiner Bibliothek")
                         ForEach(r.tracks) { t in trackRowWithMenu(t, allTracks: r.tracks) }
                     }
                     if !r.artists.isEmpty {
@@ -224,13 +230,38 @@ struct SearchView: View {
                         ForEach(r.albums) { alb in albumRow(alb) }
                     }
                 }
-                if !externalResults.isEmpty {
+
+                // External-Section IMMER zeigen (auch wenn local leer ist)
+                if hasExternal {
                     externalHeader
                     ForEach(externalResults) { hit in externalRow(hit) }
-                } else if isLoadingExternal && results != nil {
-                    HStack { Spacer(); ProgressView().tint(DS.textSecondary); Spacer() }
-                        .padding(.vertical, DS.m)
+                } else if isLoadingExternal {
+                    HStack(spacing: DS.s) {
+                        ProgressView().tint(DS.textSecondary).scaleEffect(0.8)
+                        Text("Suche im Web...")
+                            .font(DS.Font.footnote)
+                            .foregroundStyle(DS.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity).padding(.vertical, DS.l)
+                } else if nothingAtAll {
+                    // Spotify-API-Restriction: Wenn external 0 hits & local 0 hits, Hinweis zeigen
+                    VStack(spacing: DS.s) {
+                        Spacer().frame(height: 60)
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 40))
+                            .foregroundStyle(DS.textSecondary)
+                        Text("Nichts gefunden")
+                            .font(DS.Font.bodyLarge)
+                            .foregroundStyle(DS.textPrimary)
+                        Text("Spotify-Catalog grad nicht verfuegbar — versuche Profil → Scraping mit YT-Suche")
+                            .font(DS.Font.caption)
+                            .foregroundStyle(DS.textSecondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, DS.xxl)
+                        Spacer()
+                    }
                 }
+
                 Spacer().frame(height: 140)
             }
         }

@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Account-Sheet wie Spotify (Top-Right Avatar tippen -> dieses Sheet).
-/// Zeigt aktuellen User, plus Account-Management + Admin + Logout.
+/// Profil-Sheet als single Place fuer alles: User-Info, Settings, Scraping-Panel,
+/// Logout. Keine Sub-Sheets mehr — alles inline-collapsible damit kein
+/// Sheet-on-Sheet-Chaos.
 struct ProfileSheet: View {
     @Environment(\.dismiss) var dismiss
 
@@ -9,9 +10,14 @@ struct ProfileSheet: View {
     @State private var user: UserProfile?
     @State private var isLoading = true
     @State private var error: String?
-    @State private var showAdminSheet = false
-    @State private var showSettingsSheet = false
     @State private var showLogoutConfirm = false
+
+    // Inline-Sektionen (statt Sub-Sheets):
+    @State private var expandScraping = false
+    @State private var expandSettings = false
+
+    // Settings-State
+    @State private var apiBase: String = UserDefaults.standard.string(forKey: "rolify.apiBase") ?? ""
 
     var body: some View {
         ZStack {
@@ -23,16 +29,6 @@ struct ProfileSheet: View {
             }
         }
         .preferredColorScheme(.dark)
-        .sheet(isPresented: $showAdminSheet) {
-            AdminScrapeSheet()
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $showSettingsSheet) {
-            SettingsSheet()
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
         .alert("Wirklich abmelden?", isPresented: $showLogoutConfirm) {
             Button("Abbrechen", role: .cancel) {}
             Button("Abmelden", role: .destructive) {
@@ -46,8 +42,7 @@ struct ProfileSheet: View {
     }
 
     private var grabber: some View {
-        Capsule()
-            .fill(Color.white.opacity(0.3))
+        Capsule().fill(Color.white.opacity(0.3))
             .frame(width: 36, height: 5)
             .padding(.top, DS.s)
             .padding(.bottom, DS.m)
@@ -55,54 +50,155 @@ struct ProfileSheet: View {
 
     @ViewBuilder
     private var content: some View {
-        if isLoading && user == nil {
-            ProgressView().tint(DS.accent).frame(maxHeight: .infinity)
-        } else if let user {
-            ScrollView {
-                VStack(spacing: DS.m) {
-                    userCard(user)
-                        .padding(.horizontal, DS.l)
-                        .padding(.bottom, DS.s)
-
-                    menuGroup {
-                        menuRow(icon: "arrow.down.circle.fill", title: "Scraping & Downloads") { showAdminSheet = true }
-                        menuDivider
-                        menuRow(icon: "gearshape.fill", title: "Einstellungen") { showSettingsSheet = true }
+        ScrollView {
+            VStack(spacing: DS.m) {
+                // User-Card oder Error-Fallback (mit Logout-Button)
+                if let u = user {
+                    userCard(u).padding(.horizontal, DS.l)
+                } else if isLoading {
+                    HStack { Spacer(); ProgressView().tint(DS.accent); Spacer() }
+                        .padding(.vertical, DS.xxl)
+                } else if let error {
+                    VStack(spacing: DS.s) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 28)).foregroundStyle(.red)
+                        Text("Profil konnte nicht geladen werden")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(DS.textPrimary)
+                        Text(error).font(DS.Font.footnote).foregroundStyle(DS.textSecondary)
+                            .multilineTextAlignment(.center).padding(.horizontal, DS.xl)
                     }
+                    .padding(.vertical, DS.l)
+                }
 
-                    menuGroup {
-                        menuRow(icon: "rectangle.portrait.and.arrow.right", title: "Abmelden", destructive: true) { showLogoutConfirm = true }
+                // Section: Scraping
+                sectionWrapper {
+                    Button { withAnimation(.easeInOut(duration: 0.2)) { expandScraping.toggle() } } label: {
+                        sectionHeader(icon: "arrow.down.circle.fill",
+                                       title: "Scraping & Downloads",
+                                       expanded: expandScraping)
                     }
+                    .buttonStyle(.plain)
 
-                    Text("Rolify v0.13 · Pi-Backend")
-                        .font(DS.Font.footnote)
-                        .foregroundStyle(DS.textTertiary)
-                        .padding(.top, DS.m)
+                    if expandScraping {
+                        Divider().background(DS.divider).padding(.leading, 52)
+                        ScrapingPanel()
+                    }
+                }
 
-                    Spacer().frame(height: DS.xxl)
+                // Section: Einstellungen
+                sectionWrapper {
+                    Button { withAnimation(.easeInOut(duration: 0.2)) { expandSettings.toggle() } } label: {
+                        sectionHeader(icon: "gearshape.fill",
+                                       title: "Einstellungen",
+                                       expanded: expandSettings)
+                    }
+                    .buttonStyle(.plain)
+
+                    if expandSettings {
+                        Divider().background(DS.divider).padding(.leading, 52)
+                        settingsContent
+                    }
                 }
-            }
-        } else if let error {
-            VStack(spacing: DS.l) {
-                ErrorView(message: error) { Task { await load() } }
-                Button {
-                    api.logout()
-                    dismiss()
-                } label: {
-                    Text("Trotzdem abmelden")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(Color.red)
-                        .frame(maxWidth: .infinity).frame(height: 48)
-                        .background(DS.bgElevated)
-                        .clipShape(Capsule())
+
+                // Section: Logout
+                sectionWrapper {
+                    Button { showLogoutConfirm = true } label: {
+                        HStack(spacing: DS.m) {
+                            Image(systemName: "rectangle.portrait.and.arrow.right")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(.red)
+                                .frame(width: 24)
+                            Text("Abmelden")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.red)
+                            Spacer()
+                        }
+                        .padding(.horizontal, DS.l).padding(.vertical, DS.m)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
-                .padding(.horizontal, DS.xl)
-                .padding(.bottom, DS.xxl)
+
+                Text("Rolify v0.16 · Pi-Backend")
+                    .font(DS.Font.footnote)
+                    .foregroundStyle(DS.textTertiary)
+                    .padding(.top, DS.m)
+
+                Spacer().frame(height: DS.xxl)
             }
-        } else {
-            Color.clear
         }
+    }
+
+    // MARK: - Settings Content (inline, ehemals SettingsSheet)
+
+    private var settingsContent: some View {
+        VStack(alignment: .leading, spacing: DS.m) {
+            VStack(alignment: .leading, spacing: DS.xs) {
+                Text("API Base-URL")
+                    .font(DS.Font.footnote).foregroundStyle(DS.textSecondary)
+                TextField("https://rolify.rolak.ch", text: $apiBase)
+                    .font(.system(size: 14))
+                    .foregroundStyle(DS.textPrimary)
+                    .padding(.horizontal, DS.m)
+                    .frame(height: 42)
+                    .background(DS.bg)
+                    .clipShape(RoundedRectangle(cornerRadius: DS.radiusS))
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.URL)
+                Text("Leer = Production. LAN-Dev: http://<pi-ip>:3000")
+                    .font(DS.Font.footnote).foregroundStyle(DS.textTertiary)
+            }
+
+            Button {
+                let trimmed = apiBase.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    UserDefaults.standard.removeObject(forKey: "rolify.apiBase")
+                } else {
+                    UserDefaults.standard.set(trimmed, forKey: "rolify.apiBase")
+                }
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } label: {
+                Text("API-URL speichern")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity).frame(height: 38)
+                    .background(DS.accent)
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, DS.l).padding(.vertical, DS.m)
+    }
+
+    // MARK: - Helpers
+
+    private func sectionHeader(icon: String, title: String, expanded: Bool) -> some View {
+        HStack(spacing: DS.m) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(DS.textPrimary)
+                .frame(width: 24)
+            Text(title)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(DS.textPrimary)
+            Spacer()
+            Image(systemName: "chevron.down")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(DS.textTertiary)
+                .rotationEffect(.degrees(expanded ? 0 : -90))
+        }
+        .padding(.horizontal, DS.l).padding(.vertical, DS.m)
+        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private func sectionWrapper<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(spacing: 0) { content() }
+            .background(DS.bgElevated)
+            .clipShape(RoundedRectangle(cornerRadius: DS.radiusL, style: .continuous))
+            .padding(.horizontal, DS.l)
     }
 
     private func userCard(_ u: UserProfile) -> some View {
@@ -110,9 +206,8 @@ struct ProfileSheet: View {
             ZStack {
                 Circle().fill(LinearGradient(
                     colors: [DS.accentBright, DS.accent, DS.accentDeep],
-                    startPoint: .topLeading, endPoint: .bottomTrailing
-                ))
-                .frame(width: 56, height: 56)
+                    startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: 56, height: 56)
                 Text(initials(from: u.displayName))
                     .font(.system(size: 20, weight: .black))
                     .foregroundStyle(.white)
@@ -133,43 +228,6 @@ struct ProfileSheet: View {
         .clipShape(RoundedRectangle(cornerRadius: DS.radiusL, style: .continuous))
     }
 
-    @ViewBuilder
-    private func menuGroup<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(spacing: 0) { content() }
-            .background(DS.bgElevated)
-            .clipShape(RoundedRectangle(cornerRadius: DS.radiusL, style: .continuous))
-            .padding(.horizontal, DS.l)
-    }
-
-    private var menuDivider: some View {
-        Divider().background(DS.divider).padding(.leading, 52)
-    }
-
-    private func menuRow(icon: String, title: String, destructive: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            action()
-        }) {
-            HStack(spacing: DS.m) {
-                Image(systemName: icon)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(destructive ? Color.red : DS.textPrimary)
-                    .frame(width: 24)
-                Text(title)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(destructive ? Color.red : DS.textPrimary)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(DS.textTertiary)
-            }
-            .padding(.horizontal, DS.l)
-            .padding(.vertical, DS.m)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
     private func initials(from name: String) -> String {
         let parts = name.split(separator: " ").prefix(2)
         let letters = parts.compactMap { $0.first }.map { String($0) }.joined()
@@ -183,73 +241,9 @@ struct ProfileSheet: View {
     }
 }
 
-// MARK: - Small SettingsSheet (API-Base-URL override + App-Info)
-
+// SettingsSheet bleibt fuer back-compat (falls noch wo referenced),
+// macht aber jetzt nichts mehr — alles inline in ProfileSheet.
 struct SettingsSheet: View {
     @Environment(\.dismiss) var dismiss
-    @State private var apiBase: String = UserDefaults.standard.string(forKey: "rolify.apiBase") ?? ""
-
-    var body: some View {
-        ZStack {
-            DS.bg.ignoresSafeArea()
-
-            VStack(spacing: DS.l) {
-                header
-
-                VStack(alignment: .leading, spacing: DS.s) {
-                    Text("API Base-URL")
-                        .font(DS.Font.footnote)
-                        .foregroundStyle(DS.textSecondary)
-                    TextField("https://rolify.rolak.ch", text: $apiBase)
-                        .font(.system(size: 15))
-                        .foregroundStyle(DS.textPrimary)
-                        .padding(.horizontal, DS.l)
-                        .frame(height: 48)
-                        .background(DS.bgElevated)
-                        .clipShape(RoundedRectangle(cornerRadius: DS.radiusM, style: .continuous))
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                        .keyboardType(.URL)
-                    Text("Leer lassen fuer Production. Fuer LAN-Dev: http://<pi-lan-ip>:3000")
-                        .font(DS.Font.footnote)
-                        .foregroundStyle(DS.textTertiary)
-                }
-                .padding(.horizontal, DS.xl)
-
-                Button("Speichern & App neu starten") {
-                    let trimmed = apiBase.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if trimmed.isEmpty {
-                        UserDefaults.standard.removeObject(forKey: "rolify.apiBase")
-                    } else {
-                        UserDefaults.standard.set(trimmed, forKey: "rolify.apiBase")
-                    }
-                    dismiss()
-                }
-                .foregroundStyle(.black)
-                .frame(maxWidth: .infinity)
-                .frame(height: 48)
-                .background(DS.accent)
-                .clipShape(Capsule())
-                .padding(.horizontal, DS.xl)
-
-                Spacer()
-            }
-            .padding(.top, DS.l)
-        }
-        .preferredColorScheme(.dark)
-    }
-
-    private var header: some View {
-        HStack {
-            Button("Schliessen") { dismiss() }
-                .foregroundStyle(DS.textSecondary)
-            Spacer()
-            Text("Einstellungen")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(DS.textPrimary)
-            Spacer()
-            Color.clear.frame(width: 80)
-        }
-        .padding(.horizontal, DS.l)
-    }
+    var body: some View { Color.clear.onAppear { dismiss() } }
 }
