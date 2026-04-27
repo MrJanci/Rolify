@@ -61,9 +61,12 @@ final class PlaybackQueue {
     // MARK: Public API
 
     func setQueue(_ tracks: [QueueTrack], startingAt trackId: String? = nil) {
-        self.originalOrder = tracks
-        self.order = tracks
-        if let id = trackId, let idx = tracks.firstIndex(where: { $0.id == id }) {
+        // Dedupe: behalte nur ersten Auftritt pro id (sonst Shuffle-Doppelte-Bug)
+        var seen = Set<String>()
+        let unique = tracks.filter { seen.insert($0.id).inserted }
+        self.originalOrder = unique
+        self.order = unique
+        if let id = trackId, let idx = unique.firstIndex(where: { $0.id == id }) {
             self.currentIndex = idx
         } else {
             self.currentIndex = 0
@@ -121,25 +124,44 @@ final class PlaybackQueue {
         currentIndex = 0
     }
 
-    /// Fuegt Track ans Ende der Queue an (Context-Menu "Zur Warteschlange")
+    /// Fuegt Track direkt nach dem aktuellen ans Up-Next der Queue an
+    /// (Spotify "Add to Queue"-Pattern: gehoert zum Up-Next-Pool, nicht ans Ende).
+    /// Wenn Track schon weiter unten ist: bleibt er da, wird aber explizit doppelt
+    /// an currentIndex+1 eingefuegt (Spotify behaviour — User will JETZT diesen Song als naechstes).
     func appendAtEnd(_ track: QueueTrack) {
-        // Wenn Track schon in Queue: skip
-        guard !order.contains(where: { $0.id == track.id }) else { return }
-        originalOrder.append(track)
-        order.append(track)
+        // Wenn Queue leer: setQueue mit nur diesem Track + currentIndex 0
+        if order.isEmpty {
+            originalOrder = [track]
+            order = [track]
+            currentIndex = 0
+            return
+        }
+        // Insert direkt nach current — das ist "Up Next"
+        let insertIdx = min(currentIndex + 1, order.count)
+        order.insert(track, at: insertIdx)
+        // originalOrder synchronisieren (auch dort an gleicher Position)
+        if shuffle {
+            originalOrder.append(track)  // bei shuffle merken wir's hinten — order ist sowieso schon mixed
+        } else {
+            originalOrder.insert(track, at: insertIdx)
+        }
     }
 
     // MARK: Internal
 
     private func rebuildOrder() {
         guard !originalOrder.isEmpty else { return }
+        // Defensive Dedupe — falls originalOrder durch externe appends doppelt wurde
+        var seen = Set<String>()
+        let uniqueSrc = originalOrder.filter { seen.insert($0.id).inserted }
+
         // Aktuellen Track merken damit currentIndex korrekt bleibt
         let currentId = order.indices.contains(currentIndex) ? order[currentIndex].id : nil
 
         if shuffle {
-            var shuffled = originalOrder
+            var shuffled = uniqueSrc
             shuffled.shuffle()
-            // Aktuellen Track an currentIndex lassen -> bewege ihn an position 0 ff.
+            // Aktuellen Track an position 0 — restlich shuffled drumrum.
             if let id = currentId, let idx = shuffled.firstIndex(where: { $0.id == id }) {
                 let t = shuffled.remove(at: idx)
                 shuffled.insert(t, at: 0)
@@ -147,7 +169,7 @@ final class PlaybackQueue {
             }
             order = shuffled
         } else {
-            order = originalOrder
+            order = uniqueSrc
             if let id = currentId, let idx = order.firstIndex(where: { $0.id == id }) {
                 currentIndex = idx
             }

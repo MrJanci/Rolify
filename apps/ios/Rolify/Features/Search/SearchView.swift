@@ -17,6 +17,7 @@ struct SearchView: View {
     @State private var showProfileSheet = false
     @State private var activeDownloads: [String: ActiveDownload] = [:]
     @State private var pollTasks: [String: Task<Void, Never>] = [:]
+    @State private var ytFallbackJobs: [String: String] = [:]   // query -> jobId
     @State private var api = API.shared
     @State private var player = Player.shared
 
@@ -218,9 +219,10 @@ struct SearchView: View {
                     }
                 }
 
-                // External-Section IMMER zeigen (auch wenn local leer ist)
+                // External-Section IMMER zeigen — auch wenn lokale Hits da sind +
+                // auch wenn Spotify 0 zurueckgibt. Dann YT-Fallback-Button anbieten.
+                externalHeader
                 if hasExternal {
-                    externalHeader
                     ForEach(externalResults) { hit in externalRow(hit) }
                 } else if isLoadingExternal {
                     HStack(spacing: DS.s) {
@@ -230,27 +232,89 @@ struct SearchView: View {
                             .foregroundStyle(DS.textSecondary)
                     }
                     .frame(maxWidth: .infinity).padding(.vertical, DS.l)
-                } else if nothingAtAll {
-                    // Spotify-API-Restriction: Wenn external 0 hits & local 0 hits, Hinweis zeigen
-                    VStack(spacing: DS.s) {
-                        Spacer().frame(height: 60)
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 40))
-                            .foregroundStyle(DS.textSecondary)
-                        Text("Nichts gefunden")
-                            .font(DS.Font.bodyLarge)
-                            .foregroundStyle(DS.textPrimary)
-                        Text("Spotify-Catalog grad nicht verfuegbar — versuche Profil → Scraping mit YT-Suche")
-                            .font(DS.Font.caption)
-                            .foregroundStyle(DS.textSecondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, DS.xxl)
-                        Spacer()
-                    }
+                } else {
+                    ytFallbackCard
                 }
+                _ = nothingAtAll  // unused-var quiet
 
                 Spacer().frame(height: 140)
             }
+        }
+    }
+
+    /// Fallback-Card wenn Spotify keine Hits liefert / API down ist:
+    /// User kann mit Tap einen yt-search-Scrape-Job triggern, der Track wird
+    /// dann lokal gescrape t und taucht beim naechsten Search-Refresh auf.
+    @ViewBuilder
+    private var ytFallbackCard: some View {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let activeJobId = ytFallbackJobs[q]
+
+        VStack(alignment: .leading, spacing: DS.s) {
+            HStack(spacing: DS.m) {
+                ZStack {
+                    Circle().fill(Color.red.opacity(0.18))
+                    Image(systemName: "play.rectangle.fill")
+                        .font(.system(size: 22, weight: .black))
+                        .foregroundStyle(Color.red.opacity(0.85))
+                }
+                .frame(width: 44, height: 44)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(activeJobId == nil ? "Auf YouTube suchen lassen" : "Wird gescrape t…")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(DS.textPrimary)
+                    Text(activeJobId == nil
+                         ? "Spotify hat fuer \"\(q)\" keine Treffer. Rolify kann es direkt von YouTube laden."
+                         : "Der Worker laed grad runter. Sobald fertig taucht der Track in der Suche auf.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(DS.textSecondary)
+                        .lineLimit(3)
+                }
+                Spacer()
+                if activeJobId == nil {
+                    Image(systemName: "arrow.right.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundStyle(DS.accent)
+                } else {
+                    ProgressView().tint(DS.accent)
+                }
+            }
+        }
+        .padding(.horizontal, DS.xl)
+        .padding(.vertical, DS.m)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard activeJobId == nil, !q.isEmpty else { return }
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            Task { await triggerYTFallback(query: q) }
+        }
+    }
+
+    private func triggerYTFallback(query: String) async {
+        do {
+            let resp = try await api.enqueueYTSearch(query: query)
+            ytFallbackJobs[query] = resp.id
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            // Polling bis DONE → dann re-run lokal-Search damit Tracks erscheinen
+            Task { @MainActor in
+                for _ in 0..<300 {  // max ~10 min
+                    try? await Task.sleep(for: .seconds(2))
+                    guard let job = try? await api.scrapeJob(id: resp.id) else { continue }
+                    if job.status == "DONE" || job.status == "FAILED" {
+                        ytFallbackJobs.removeValue(forKey: query)
+                        if job.status == "DONE" {
+                            await runSearch(query)
+                            UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        } else {
+                            UINotificationFeedbackGenerator().notificationOccurred(.error)
+                        }
+                        return
+                    }
+                }
+                ytFallbackJobs.removeValue(forKey: query)
+            }
+        } catch {
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
         }
     }
 

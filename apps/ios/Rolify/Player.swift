@@ -391,7 +391,14 @@ final class Player {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                await self?.advanceQueue()
+                guard let self else { return }
+                // Race-Fix: Wenn ein Crossfade gerade laeuft, hat der alte Player
+                // gleichzeitig mit dem Fade-Ende auch sein PlayerItemDidPlayToEndTime
+                // erreicht. Ein zweites advanceQueue() wuerde den Next-Track DOPPELT
+                // starten (= "neuer Song faengt von vorn an" Bug v0.17/v0.18).
+                // Der Crossfade-Swap macht das advance() bereits selbst.
+                if self.crossfadeStarted { return }
+                await self.advanceQueue()
             }
         }
     }

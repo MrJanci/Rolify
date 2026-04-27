@@ -170,25 +170,40 @@ struct HomeView: View {
 
     @ViewBuilder
     private func quickAccessTile(_ tile: QuickAccessTile) -> some View {
-        Button {
-            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-        } label: {
-            HStack(spacing: 0) {
-                tileCover(tile)
-                Text(tile.title)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(DS.textPrimary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .padding(.horizontal, 8)
-                Spacer(minLength: 0)
+        // Direkt NavigationLink-mit-Content (kein Button-overlap → Taps gehen sauber)
+        Group {
+            switch tile.kind {
+            case "liked":
+                NavigationLink(value: PlaylistRoute.likedSongs) { tileBody(tile) }
+            case "playlist":
+                NavigationLink(value: PlaylistRoute.detail(tile.id, tile.title)) { tileBody(tile) }
+            case "album":
+                NavigationLink(value: LibraryRoute.album(tile.id)) { tileBody(tile) }
+            case "artist":
+                NavigationLink(value: LibraryRoute.artist(tile.id)) { tileBody(tile) }
+            default:
+                tileBody(tile)
             }
-            .background(DS.bgElevated)
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .frame(height: 56)
         }
         .buttonStyle(.plain)
-        .background(quickAccessLink(tile))
+        .simultaneousGesture(TapGesture().onEnded {
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+        })
+    }
+
+    private func tileBody(_ tile: QuickAccessTile) -> some View {
+        HStack(spacing: 10) {
+            tileCover(tile)
+            Text(tile.title)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(DS.textPrimary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+            Spacer(minLength: 0)
+        }
+        .background(DS.bgElevated)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .frame(height: 56)
     }
 
     @ViewBuilder
@@ -214,23 +229,6 @@ struct HomeView: View {
                 placeholder: tile.kind == "playlist" ? "music.note.list" : "square.stack"
             )
             .frame(width: 56, height: 56)
-        }
-    }
-
-    /// Hidden NavigationLink overlay damit der Quick-Access-Tile auf das richtige Detail navigiert.
-    @ViewBuilder
-    private func quickAccessLink(_ tile: QuickAccessTile) -> some View {
-        switch tile.kind {
-        case "liked":
-            NavigationLink(value: PlaylistRoute.likedSongs) { Color.clear }.opacity(0)
-        case "playlist":
-            NavigationLink(value: PlaylistRoute.detail(tile.id, tile.title)) { Color.clear }.opacity(0)
-        case "album":
-            NavigationLink(value: LibraryRoute.album(tile.id)) { Color.clear }.opacity(0)
-        case "artist":
-            NavigationLink(value: LibraryRoute.artist(tile.id)) { Color.clear }.opacity(0)
-        default:
-            EmptyView()
         }
     }
 
@@ -349,41 +347,61 @@ struct HomeView: View {
         }
     }
 
-    /// Recommended-Stations Shelf — Spotify-Style "RADIO"-Card mit 3 face-circles.
+    /// Recommended-Stations Shelf — Spotify-Style "RADIO"-Card.
+    /// Layout: tintColor-Background, RADIO-Label oben-links, grosses Cover zentriert,
+    /// Titel ueber Subtitle ausserhalb der Card.
     private func stationsShelfScroll(_ items: [StationItem]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: DS.m) {
                 ForEach(items) { s in
                     NavigationLink(value: LibraryRoute.artist(s.id)) {
                         VStack(alignment: .leading, spacing: 6) {
-                            ZStack {
-                                Color(hex: s.tintHex) ?? DS.bgElevated
-                                VStack(alignment: .leading) {
-                                    Text("RADIO")
-                                        .font(.system(size: 10, weight: .black))
-                                        .foregroundStyle(.black.opacity(0.7))
-                                        .padding(.top, 8).padding(.leading, 10)
-                                    Spacer()
-                                    HStack(alignment: .bottom, spacing: -10) {
-                                        if !s.coverUrl.isEmpty {
-                                            CoverImage(url: s.coverUrl, cornerRadius: 30)
-                                                .frame(width: 60, height: 60)
-                                                .overlay(Circle().stroke(.white, lineWidth: 2))
+                            ZStack(alignment: .topLeading) {
+                                // Tint-Background mit subtle gradient
+                                LinearGradient(
+                                    colors: [
+                                        (Color(hex: s.tintHex) ?? DS.bgElevated),
+                                        (Color(hex: s.tintHex) ?? DS.bgElevated).opacity(0.7),
+                                    ],
+                                    startPoint: .topLeading, endPoint: .bottomTrailing
+                                )
+
+                                // RADIO-Label
+                                Text("RADIO")
+                                    .font(.system(size: 11, weight: .black))
+                                    .foregroundStyle(.black.opacity(0.65))
+                                    .tracking(1.5)
+                                    .padding(.top, 10)
+                                    .padding(.leading, 12)
+
+                                // Center cover + title row
+                                VStack(spacing: 8) {
+                                    Spacer().frame(height: 18)
+                                    if !s.coverUrl.isEmpty {
+                                        CoverImage(url: s.coverUrl, cornerRadius: 50)
+                                            .frame(width: 100, height: 100)
+                                            .overlay(Circle().stroke(.white.opacity(0.9), lineWidth: 2))
+                                            .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
+                                    } else {
+                                        ZStack {
+                                            Circle().fill(.white.opacity(0.4))
+                                            Image(systemName: "music.note")
+                                                .font(.system(size: 36, weight: .bold))
+                                                .foregroundStyle(.black.opacity(0.5))
                                         }
+                                        .frame(width: 100, height: 100)
                                     }
-                                    .padding(.leading, 22).padding(.bottom, 12)
+                                    Text(s.name)
+                                        .font(.system(size: 14, weight: .black))
+                                        .foregroundStyle(.black)
+                                        .lineLimit(2)
+                                        .multilineTextAlignment(.center)
+                                        .padding(.horizontal, 8)
                                 }
-                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                                Text(s.name)
-                                    .font(.system(size: 18, weight: .black))
-                                    .foregroundStyle(.black)
-                                    .lineLimit(2)
-                                    .padding(.horizontal, 10)
-                                    .padding(.bottom, 10)
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                                .frame(maxWidth: .infinity)
                             }
                             .frame(width: 148, height: 200)
-                            .clipShape(RoundedRectangle(cornerRadius: DS.radiusS))
+                            .clipShape(RoundedRectangle(cornerRadius: DS.radiusM))
 
                             Text(s.subtitle)
                                 .font(.system(size: 11))

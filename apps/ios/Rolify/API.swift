@@ -296,6 +296,24 @@ final class API {
                                         body: Body(trackId: trackId, contextType: contextType, contextId: contextId))
     }
 
+    struct YTSearchEnqueueResponse: Codable {
+        let id: String
+        let playlistUrl: String
+        let status: String
+    }
+
+    /// Triggert YT-Search-Scrape via Worker. Nuetzlich wenn Spotify-Catalog 0 Hits
+    /// liefert oder offline ist — yt-dlp findet meist auch obscure Tracks.
+    /// Worker enqueued das wie ein normaler ScrapeJob, danach taucht der Track
+    /// in /search auf (lokal gefunden).
+    @discardableResult
+    func enqueueYTSearch(query: String) async throws -> YTSearchEnqueueResponse {
+        struct Body: Encodable { let playlistUrl: String }
+        let safe = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return try await request("/admin/scrape", method: "POST",
+                                  body: Body(playlistUrl: "yt:search:\(safe)"))
+    }
+
     struct AllTracksResponse: Codable { let tracks: [TrackListItem] }
 
     /// Alle verfuegbaren Tracks im System (flat, paginated).

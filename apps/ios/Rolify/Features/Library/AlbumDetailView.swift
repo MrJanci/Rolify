@@ -10,6 +10,13 @@ struct AlbumDetailView: View {
     @State private var api = API.shared
     @State private var player = Player.shared
 
+    /// True wenn aktuell ein Track aus DIESEM Album spielt — Play-Button zeigt
+    /// dann Pause-Icon + Pause-Action statt Re-Start.
+    private var isPlayingThisSource: Bool {
+        guard player.isPlaying else { return false }
+        return player.playContext?.type == "album" && player.playContext?.id == albumId
+    }
+
     var body: some View {
         ZStack {
             DS.bg.ignoresSafeArea()
@@ -33,14 +40,21 @@ struct AlbumDetailView: View {
                                 .buttonStyle(.plain)
 
                                 Button {
-                                    guard let first = detail.tracks.first else { return }
                                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                    let q = detail.tracks.map { QueueTrack($0) }
-                                    Task { await player.play(queue: q, startingAt: first.id, context: Player.PlayContext(type: "album", id: albumId)) }
+                                    if isPlayingThisSource {
+                                        // Pause statt re-start
+                                        player.togglePlayPause()
+                                    } else {
+                                        guard let first = detail.tracks.first else { return }
+                                        let q = detail.tracks.map { QueueTrack($0) }
+                                        Task { await player.play(queue: q, startingAt: first.id, context: Player.PlayContext(type: "album", id: albumId)) }
+                                    }
                                 } label: {
                                     HStack(spacing: 8) {
-                                        Image(systemName: "play.fill").font(.system(size: 16, weight: .black))
-                                        Text("Abspielen").font(.system(size: 15, weight: .bold))
+                                        Image(systemName: isPlayingThisSource ? "pause.fill" : "play.fill")
+                                            .font(.system(size: 16, weight: .black))
+                                            .contentTransition(.symbolEffect(.replace))
+                                        Text(isPlayingThisSource ? "Pause" : "Abspielen").font(.system(size: 15, weight: .bold))
                                     }
                                     .foregroundStyle(.black)
                                     .padding(.horizontal, 32)

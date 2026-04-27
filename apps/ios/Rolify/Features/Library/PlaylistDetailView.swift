@@ -13,6 +13,12 @@ struct PlaylistDetailView: View {
     @State private var showCollabSheet = false
     @State private var collaborators: [CollaboratorInfo] = []
 
+    /// True wenn aktuell ein Track aus dieser Playlist spielt.
+    private var isPlayingThisSource: Bool {
+        guard player.isPlaying else { return false }
+        return player.playContext?.type == "playlist" && player.playContext?.id == playlistId
+    }
+
     var body: some View {
         ZStack {
             DS.bg.ignoresSafeArea()
@@ -135,14 +141,21 @@ struct PlaylistDetailView: View {
                         Button {
                             guard !d.tracks.isEmpty else { return }
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            let q = d.tracks.map { QueueTrack($0) }
-                            PlaybackQueue.shared.shuffle = true
-                            guard let first = q.randomElement() else { return }
-                            Task { await player.play(queue: q, startingAt: first.id, context: Player.PlayContext(type: "playlist", id: playlistId)) }
+                            // Wenn schon shuffled diese Playlist laeuft -> nur Toggle off, weiterspielen
+                            if isPlayingThisSource && PlaybackQueue.shared.shuffle {
+                                PlaybackQueue.shared.shuffle = false
+                            } else {
+                                let q = d.tracks.map { QueueTrack($0) }
+                                PlaybackQueue.shared.shuffle = true
+                                guard let first = q.randomElement() else { return }
+                                Task { await player.play(queue: q, startingAt: first.id, context: Player.PlayContext(type: "playlist", id: playlistId)) }
+                            }
                         } label: {
                             Image(systemName: "shuffle")
                                 .font(.system(size: 22, weight: .semibold))
-                                .foregroundStyle(DS.textSecondary)
+                                .foregroundStyle(
+                                    (isPlayingThisSource && PlaybackQueue.shared.shuffle) ? DS.accent : DS.textSecondary
+                                )
                                 .frame(width: 44, height: 44)
                                 .contentShape(Rectangle())
                         }
@@ -150,18 +163,23 @@ struct PlaylistDetailView: View {
                         .disabled(d.tracks.isEmpty)
 
                         Button {
-                            guard let first = d.tracks.first else { return }
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            let q = d.tracks.map { QueueTrack($0) }
-                            PlaybackQueue.shared.shuffle = false
-                            Task { await player.play(queue: q, startingAt: first.id, context: Player.PlayContext(type: "playlist", id: playlistId)) }
+                            if isPlayingThisSource {
+                                player.togglePlayPause()
+                            } else {
+                                guard let first = d.tracks.first else { return }
+                                let q = d.tracks.map { QueueTrack($0) }
+                                PlaybackQueue.shared.shuffle = false
+                                Task { await player.play(queue: q, startingAt: first.id, context: Player.PlayContext(type: "playlist", id: playlistId)) }
+                            }
                         } label: {
-                            Image(systemName: "play.fill")
+                            Image(systemName: isPlayingThisSource ? "pause.fill" : "play.fill")
                                 .font(.system(size: 24, weight: .black))
                                 .foregroundStyle(.white)
                                 .frame(width: 56, height: 56)
                                 .background(DS.accent)
                                 .clipShape(Circle())
+                                .contentTransition(.symbolEffect(.replace))
                                 .shadow(color: DS.accent.opacity(0.45), radius: 12, y: 6)
                         }
                         .buttonStyle(.plain)
