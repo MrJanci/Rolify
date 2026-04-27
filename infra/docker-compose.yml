@@ -93,6 +93,8 @@ services:
       # auf YT-Rate-Limits + Pi-CPU. 12 ist safe mit Cookies.
       CONCURRENCY_DOWNLOAD: ${CONCURRENCY_DOWNLOAD:-12}
       CONCURRENCY_TRANSCODE: ${CONCURRENCY_TRANSCODE:-4}
+      # Last.fm-API-Key fuer dynamic playlists (refresh_dynamic_playlists.py)
+      LASTFM_API_KEY: ${LASTFM_API_KEY:-}
     volumes:
       # .spotify-token.json wird vom Host-FS gemounted (OAuth-Refresh-Token)
       # RW damit spotipy den access_token refreshen kann (expires after 60 min)
